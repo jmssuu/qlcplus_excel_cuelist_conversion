@@ -216,3 +216,27 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# --- Python ---
+__pycache__/
+*.pyc
+.venv/
+.venv-win/
+
+# --- PyInstaller 打包產物 ---
+build/
+dist/
+*.spec
+
+# --- 作業系統垃圾檔 ---
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# --- Excel / QLC+ 的暫存與自動存檔 ---
+~$*.xlsx
+*.autosave.qxw
+*.qxw.bak
+
+# --- 轉檔流程的中繼產物 ---
+temp_*/

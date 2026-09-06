@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE FixtureDefinition>
+<FixtureDefinition xmlns="http://www.qlcplus.org/FixtureDefinition">
+ <Creator>
+  <Name>Q Light Controller Plus</Name>
+  <Version>5.2.2</Version>
+  <Author>JMSSUU</Author>
+ </Creator>
+ <Manufacturer>Guangzhou Enran</Manufacturer>
+ <Model>ER-554</Model>
+ <Type>Color Changer</Type>
+ <Channel Name="total dimming" Preset="IntensityMasterDimmer"/>
+ <Channel Name="Red" Preset="IntensityRed"/>
+ <Channel Name="Green" Preset="IntensityGreen"/>
+ <Channel Name="Blue" Preset="IntensityBlue"/>
+ <Channel Name="Stroboscopic">
+  <Group Byte="0">Effect</Group>
+  <Capability Min="0" Max="255">Stroboscopic (Slow to fast)</Capability>
+ </Channel>
+ <Channel Name="Function">
+  <Group Byte="0">Colour</Group>
+  <Capability Min="0" Max="50">None</Capability>
+  <Capability Min="51" Max="100">Program color selection</Capability>
+  <Capability Min="101" Max="150">Jump</Capability>
+  <Capability Min="151" Max="200">Gradual change</Capability>
+  <Capability Min="201" Max="250">Pluse change</Capability>
+  <Capability Min="251" Max="255">None</Capability>
+ </Channel>
+ <Channel Name="White" Preset="IntensityWhite"/>
+ <Channel Name="Speed">
+  <Group Byte="0">Speed</Group>
+  <Capability Min="0" Max="255">Speed (Slow to fast)</Capability>
+ </Channel>
+ <Mode Name="New mode">
+  <Channel Number="0">total dimming</Channel>
+  <Channel Number="1" ActsOn="0">Red</Channel>
+  <Channel Number="2" ActsOn="0">Green</Channel>
+  <Channel Number="3" ActsOn="0">Blue</Channel>
+  <Channel Number="4" ActsOn="0">White</Channel>
+  <Channel Number="5" ActsOn="0">Stroboscopic</Channel>
+  <Channel Number="6">Function</Channel>
+  <Channel Number="7" ActsOn="6">Speed</Channel>
+  <Head>
+   <Channel>0</Channel>
+   <Channel>1</Channel>
+   <Channel>2</Channel>
+   <Channel>3</Channel>
+   <Channel>4</Channel>
+   <Channel>5</Channel>
+   <Channel>6</Channel>
+  </Head>
+ </Mode>
+ <Physical>
+  <Bulb Type="LED" Lumens="300" ColourTemperature="4"/>
+  <Dimensions Weight="2" Width="205" Height="216" Depth="80"/>
+  <Lens Name="Other" DegreesMin="30" DegreesMax="100"/>
+  <Focus Type="Barrel" PanMax="90" TiltMax="178"/>
+  <Technical PowerConsumption="198" DmxConnector="3-pin"/>
+ </Physical>
+</FixtureDefinition>
