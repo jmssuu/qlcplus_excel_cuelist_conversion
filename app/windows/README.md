@@ -72,6 +72,11 @@ dist\QLCplus_Converter.exe
 **打包失敗**
 腳本結尾有 `pause`，訊息會留在畫面上不會閃退，把它貼出來即可。
 
+**轉檔時出現 `PermissionError`**
+最常見的原因是產物（`1_raw.xlsx`、`2_forqxw.xlsx` 或 `.qxw`）正開在 Excel／QLC+ 裡。
+程式會先試著刪掉舊檔再重寫，刪不掉時會印出明確訊息告訴你關掉哪個檔案。
+把檔案關掉後重跑即可。
+
 ## 這份腳本驗證到哪裡
 
 `build_exe.bat` 用的那組 PyInstaller 參數已經在 macOS 上原封不動跑過，

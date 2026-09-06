@@ -98,7 +98,7 @@ PROFILES: Tuple[Profile, ...] = (
                   "Stroboscopic", "Function", "Speed"),
         # ER-554[0] = 左台面燈 (ID 9, addr 48), ER-554[1] = 右台面燈 (ID 8, addr 56)。
         # 依 DMX address 由小到大排；workspace 裡的顯示名稱與此相反，
-        # 但 Sequence達達團_面光燈2 (ID 37) 的實際數值證實是這個順序。
+        # 但 SequenceXX團_面光燈2 (ID 37) 的實際數值證實是這個順序。
         heads={
             0: Head(9, 48, "ER-554 [1]"),
             1: Head(8, 56, "ER-554 [2]"),
@@ -191,7 +191,8 @@ HEADER_RE = re.compile(
 
 META_COLUMNS = {
     "#": "index", "no": "index", "step": "index", "序號": "index",
-    "duration": "duration", "durationms": "duration", "hold": "duration", "時間": "duration",
+    "duration": "duration", "durationms": "duration", "時間": "duration",
+    "hold": "duration", "holdms": "duration", "holdtime": "duration",
     "fadein": "fade_in", "fadeinms": "fade_in", "淡入": "fade_in",
     "fadeout": "fade_out", "fadeoutms": "fade_out", "淡出": "fade_out",
     "note": "note", "notes": "note", "備註": "note",
@@ -450,6 +451,14 @@ def build_steps(rows: List[List[str]], meta: Dict[str, int],
         duration = to_int(cell("duration"))
         if duration is None and not has_value:
             continue    # 整列空白，略過
+
+        # 整列都是 0（黑燈 cue）時，值會被前面的「略過 0」規則清空，
+        # 變成沒有任何通道的空 Step——QLC+ 會維持上一步的畫面而不是暗場。
+        # 這種情況要把表格宣告到的通道全部明確寫成 0。
+        if has_value and not values:
+            for spec in columns:
+                for head in spec.heads:
+                    values.setdefault(head.fixture_id, {})[spec.channel] = 0
 
         steps.append(Step(
             hold=max(0, duration or 0),
@@ -804,6 +813,25 @@ def merge_into_workspace(base_path: Path, shows: List[ShowSpec],
 # CLI
 # --------------------------------------------------------------------------
 
+def write_text_file(out_path: Path, text: str) -> None:
+    """寫檔，並處理 macOS 擋下「覆寫別的程式建立的舊檔」的情況。
+
+    未簽章的 .app 在 ~/Documents 這類受 TCC 保護的位置無法覆寫由終端機
+    產生的舊檔（EPERM），但在同一個資料夾裡建立新檔是允許的，
+    所以先把舊檔刪掉再寫。
+    """
+    try:
+        out_path.write_text(text, encoding="utf-8")
+        return
+    except PermissionError:
+        pass
+    try:
+        out_path.unlink()
+    except FileNotFoundError:
+        pass
+    out_path.write_text(text, encoding="utf-8")
+
+
 def read_csv(path: Path) -> List[List[str]]:
     with path.open(newline="", encoding="utf-8-sig") as fh:
         return [row for row in csv.reader(fh)]
@@ -1120,6 +1148,26 @@ def warn_missing_fixtures(base_path: Path, shows: List["ShowSpec"]) -> None:
               f"{detail}", file=sys.stderr)
 
 
+FORQXW_SUFFIX = "_forqxw"
+RAW_NAME = "1_raw.xlsx"
+FORQXW_NAME = "2_forqxw.xlsx"
+
+
+def prefer_forqxw(tables: List[Path]) -> List[Path]:
+    """同一份表格若已經有轉好的版本，就只用轉好的那份。
+
+    第 2 步會在原檔旁邊產生 ``2_forqxw.xlsx``（展開過黑燈 cue），
+    兩份都讀進來的話每條 Sequence 都會變成兩條。
+    舊檔名 ``X_cuelist.xlsx`` / ``X_cuelist_forqxw.xlsx`` 也一併認得。
+    """
+    names = {path.name for path in tables}
+    converted = {path.stem[:-len(FORQXW_SUFFIX)]
+                 for path in tables if path.stem.endswith(FORQXW_SUFFIX)}
+    return [path for path in tables
+            if not (path.name == RAW_NAME and FORQXW_NAME in names)
+            and path.stem not in converted]
+
+
 def scan_project(root: Path, out_path: Path, *, keep_zeros: bool, trim: bool,
                  only_sheets: Optional[List[str]], name_from: str) -> List[ShowSpec]:
     """掃描專案資料夾，每個子資料夾變成一個 Show。
@@ -1139,6 +1187,7 @@ def scan_project(root: Path, out_path: Path, *, keep_zeros: bool, trim: bool,
         entries = sorted(folder.iterdir(), key=lambda path: path.name)
         tables = [e for e in entries if e.suffix.lower() in TABLE_SUFFIXES
                   and not e.name.startswith("~$")]
+        tables = prefer_forqxw(tables)
         audios = [e for e in entries if e.suffix.lower() in AUDIO_SUFFIXES]
 
         if not tables:
@@ -1302,7 +1351,14 @@ def main(argv: Optional[List[str]] = None) -> int:
     if args.stdout:
         sys.stdout.write(output)
     else:
-        out_path.write_text(output, encoding="utf-8")
+        try:
+            write_text_file(out_path, output)
+        except PermissionError as exc:
+            parser.error(
+                f"沒有權限寫入 {out_path}（{exc.strerror}）。\n"
+                "  舊檔多半是用終端機或別的程式產生的，macOS 不讓未簽章的 App 改它。\n"
+                "  請把舊的 .qxw 刪掉後重跑，或到「系統設定 → 隱私權與安全性 →\n"
+                "  完全取用磁碟」把這個 App 加進去。")
         print(f"已輸出: {out_path}")
 
     folder_note = f"（資料夾 {args.folder}）" if args.folder else "（不分資料夾）"

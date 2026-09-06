@@ -10,7 +10,7 @@
 
 產出結構（以 Project1.xlsx 的第 5 張工作表為例）::
 
-    temp_Project1/達達組-沙雕男孩/達達組-沙雕男孩_cuelist.xlsx
+    temp_Project1/XX組-表演名稱/1_raw.xlsx
 
 轉換規則：
 * 從第 ``--start-sheet`` 張工作表（預設第 4 張）開始，每張工作表各自產生一個資料夾。
@@ -20,7 +20,7 @@
 * 第二個參數是音樂資料夾的路徑（省略時用執行目錄下的 ``Music``），會把裡面
   「與工作表同名的 .mp3」複製進該工作表的資料夾。
 * 第三個參數是底稿 .qxw（可省略），會複製到產出的專案資料夾根目錄，
-  供 ``step2_cuelist_to_qxw.py`` 當成 merge 的底稿。複製前會先刪掉該資料夾根目錄
+  供 ``step3_cuelist_to_qxw.py`` 當成 merge 的底稿。複製前會先刪掉該資料夾根目錄
   既有的 .qxw（不含子資料夾），免得上次留下的底稿被誤當成這次的底稿。
 """
 
@@ -37,6 +37,10 @@ try:
     import openpyxl
 except ImportError:  # pragma: no cover
     sys.exit("需要 openpyxl，請先執行：python3 -m pip install openpyxl")
+
+# 拆出來的原始表。資料夾本身已經是工作表名稱，檔名不必再重複一次；
+# 前面的數字對應流程步驟，排序就是流程順序。
+RAW_NAME = "1_raw.xlsx"
 
 MARKER = "#"
 END_HEADER = "note"
@@ -169,9 +173,51 @@ def convert_sheet(worksheet, out_path: Path) -> int:
             line = grid[r]
             sheet.append([line[c] if c < len(line) else None for c in range(left, right + 1)])
 
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    book.save(out_path)
+    save_workbook(book, out_path)
     return len(markers)
+
+
+def save_hint(out_path: Path) -> str:
+    """依平台給出對應的排除建議。"""
+    if sys.platform == "darwin":
+        return (f"    舊檔多半是用終端機或別的程式產生的，macOS 不讓未簽章的 App 改它。\n"
+                f"    請把 {out_path.parent.parent} 整個資料夾刪掉後重跑，\n"
+                f"    或到「系統設定 → 隱私權與安全性 → 完全取用磁碟」把這個 App 加進去。")
+    if sys.platform.startswith("win"):
+        return (f"    最常見的原因是這個檔案正開在 Excel 裡。請把它關掉後重跑，\n"
+                f"    或把 {out_path.parent.parent} 整個資料夾刪掉。")
+    return f"    請確認檔案沒有被其他程式開著，或把 {out_path.parent.parent} 刪掉後重跑。"
+
+
+class SaveBlocked(Exception):
+    """存檔被作業系統擋下，且刪不掉舊檔。"""
+
+
+def save_workbook(book, out_path: Path) -> None:
+    """存檔，並處理 macOS 擋下「覆寫別的程式建立的舊檔」的情況。
+
+    打包出來的 .app 是未簽章程式，在 ~/Documents、~/Desktop 這類受 TCC
+    保護的位置，覆寫「由終端機或其他程式產生」的舊檔會得到 EPERM
+    （Operation not permitted），但在同一個資料夾裡「建立新檔」是允許的。
+    所以先刪掉舊檔再寫；真的連刪都刪不掉才報錯。
+    """
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        book.save(out_path)
+        return
+    except PermissionError:
+        pass
+
+    try:
+        out_path.unlink()
+    except FileNotFoundError:
+        pass
+    except OSError as exc:
+        raise SaveBlocked(
+            f"沒有權限覆寫 {out_path}（{exc.strerror}）。\n" + save_hint(out_path)
+        ) from exc
+
+    book.save(out_path)
 
 
 def main(argv: Optional[List[str]] = None) -> int:
@@ -224,8 +270,12 @@ def main(argv: Optional[List[str]] = None) -> int:
 
         for worksheet in sheets:
             folder = root / safe_dir_name(worksheet.title)
-            out_path = folder / f"{safe_dir_name(worksheet.title)}_cuelist.xlsx"
-            count = convert_sheet(worksheet, out_path)
+            out_path = folder / RAW_NAME
+            try:
+                count = convert_sheet(worksheet, out_path)
+            except SaveBlocked as exc:
+                print(f"[失敗] {exc}", file=sys.stderr)
+                return 1
             if count:
                 print(f"[OK] {worksheet.title}：{count} 個區塊 -> {out_path}")
             else:

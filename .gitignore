@@ -240,3 +240,9 @@ desktop.ini
 
 # --- 轉檔流程的中繼產物 ---
 temp_*/
+
+# --- 範例素材：音檔太大（51MB），不進版控 ---
+sample_file/Music/
+
+# --- 轉檔成品（可由 run_all.py 重新產生）---
+sample_file/AllCueList.qxw

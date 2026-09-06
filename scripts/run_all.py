@@ -1,25 +1,28 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""一次跑完整個流程：拆表 → 轉成 QLC+ .qxw → 把音檔路徑改回原本的 Music。
+"""一次跑完整個流程：拆表 → 展開黑燈 cue → 轉成 QLC+ .qxw → 改回原本的 Music 路徑。
 
 用法::
 
     python3 run_all.py Project1.xlsx
     python3 run_all.py Project1.xlsx Music
     python3 run_all.py Project1.xlsx Music Basic_stage.qxw
-    python3 run_all.py Project1.xlsx /path/to/Music --steps 2
+    python3 run_all.py Project1.xlsx /path/to/Music --steps 3
     python3 run_all.py Project1.xlsx Music Basic_stage.qxw --outdir out
 
-流程（``--steps`` 可指定執行到第幾步，預設 3 步全跑）：
+流程（``--steps`` 可指定執行到第幾步，預設 4 步全跑）：
 1. step1_split_cuelist_xlsx.py：把總表拆成 ``<outdir>/temp_<檔名>/<工作表>/…_cuelist.xlsx``，
    並把音樂資料夾裡同名的 mp3 複製過去。
-2. step2_cuelist_to_qxw.py：直接把上一步產生的專案資料夾當輸入，轉成 ``<outdir>/<檔名>.qxw``。
-3. step3_retarget_qxw_music.py：把 .qxw 裡的音檔路徑改回指向原本的 Music 資料夾。
+2. step2_fades_to_black.py：把 ``Fades to black(ms)`` 展開成獨立的黑燈 cue，
+   在每個子資料夾裡另存成 ``…_cuelist_forqxw.xlsx``。
+3. step3_cuelist_to_qxw.py：直接把上一步產生的專案資料夾當輸入，轉成 ``<outdir>/<檔名>.qxw``
+   （同一個資料夾裡有 ``_forqxw`` 版本時只讀轉好的那份）。
+4. step4_retarget_qxw_music.py：把 .qxw 裡的音檔路徑改回指向原本的 Music 資料夾。
 
 第一個參數是要轉換的 .xlsx，第二個參數是 Music 的路徑（省略時用執行目錄下的 Music），
 第三個參數是底稿 .qxw（可省略），會被複製進產出的專案資料夾，供第 2 步當 merge 底稿。
 另可用 ``--outdir`` 指定輸出根目錄、``--steps`` 指定執行到第幾步；
-``--`` 後面的參數會傳給 step3_retarget_qxw_music.py。
+``--`` 後面的參數會傳給 step4_retarget_qxw_music.py。
 """
 
 from __future__ import annotations
@@ -28,10 +31,11 @@ import sys
 from pathlib import Path
 
 import step1_split_cuelist_xlsx
-import step2_cuelist_to_qxw
-import step3_retarget_qxw_music
+import step2_fades_to_black
+import step3_cuelist_to_qxw
+import step4_retarget_qxw_music
 
-TOTAL_STEPS = 3
+TOTAL_STEPS = 4
 
 
 def take_option(rest, *names):
@@ -114,10 +118,19 @@ def main(argv=None) -> int:
     if steps < 2:
         return 0
 
-    # --- 第 2 步：轉成 .qxw ---
-    print(f"\n=== [2/{steps}] 轉成 .qxw：{project} ===", flush=True)
+    # --- 第 2 步：展開黑燈 cue ---
+    print(f"\n=== [2/{steps}] 展開黑燈 cue：{project} ===", flush=True)
+    code = step2_fades_to_black.main([str(project)])
+    if code != 0:
+        print("展開黑燈 cue 失敗，中止。", file=sys.stderr)
+        return code
+    if steps < 3:
+        return 0
+
+    # --- 第 3 步：轉成 .qxw ---
+    print(f"\n=== [3/{steps}] 轉成 .qxw：{project} ===", flush=True)
     qxw = (outdir / f"{source.stem}.qxw").resolve()
-    code = step2_cuelist_to_qxw.main([str(project), "-o", str(qxw)])
+    code = step3_cuelist_to_qxw.main([str(project), "-o", str(qxw)])
     if code != 0:
         print("轉檔失敗，中止。", file=sys.stderr)
         return code
@@ -125,12 +138,12 @@ def main(argv=None) -> int:
     if not qxw.is_file():
         print(f"找不到產生的 .qxw：{qxw}，中止。", file=sys.stderr)
         return 1
-    if steps < 3:
+    if steps < 4:
         return 0
 
-    # --- 第 3 步：把音檔路徑改回原本的 Music ---
-    print(f"\n=== [3/{steps}] 改音檔路徑：{qxw} ===", flush=True)
-    return step3_retarget_qxw_music.main([str(qxw), str(music_dir), *retarget_args])
+    # --- 第 4 步：把音檔路徑改回原本的 Music ---
+    print(f"\n=== [4/{steps}] 改音檔路徑：{qxw} ===", flush=True)
+    return step4_retarget_qxw_music.main([str(qxw), str(music_dir), *retarget_args])
 
 
 if __name__ == "__main__":
