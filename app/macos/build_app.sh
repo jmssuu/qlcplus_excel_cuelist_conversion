@@ -51,5 +51,12 @@ if [ -f "$PLIST" ]; then
         "$PLIST" >/dev/null
 fi
 
+# 改完 Info.plist 一定要重簽：PyInstaller 打包時已經蓋了一個 ad-hoc 簽章，
+# 上面那段 PlistBuddy 會破壞封印，變成「已損毀，無法打開」——本機跑不會有事，
+# 但只要檔案被下載過（帶 com.apple.quarantine），Gatekeeper 就會直接擋掉。
+echo "==> 重新簽章"
+codesign --force --deep --sign - "dist/$NAME.app"
+codesign --verify --deep --strict "dist/$NAME.app" && echo "    簽章 OK"
+
 echo
 echo "完成： app/macos/dist/$NAME.app"

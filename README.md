@@ -105,8 +105,10 @@ app/macos/build_app.sh                      # 改完程式重新打包
 * 輸出固定放在 `.xlsx` 所在的資料夾：`<檔名>.qxw`（中繼檔在 `temp_<檔名>/`）。
 * 打包腳本第一次執行會自動建立虛擬環境（macOS 用 `.venv`、Windows 用 `.venv-win`）
   並安裝 openpyxl、pyinstaller、tkinterdnd2。
-* 打包好的 `.app` 沒有簽章，第一次開啟若被 Gatekeeper 擋下，
-  請用右鍵 →「打開」，或到「系統設定 → 隱私權與安全性」按「仍要打開」。
+* 打包好的 `.app` 沒有經過 Apple 公證，第一次開啟會被 Gatekeeper 擋下，
+  請到「系統設定 → 隱私權與安全性」按「仍要打開」。
+  若看到的是「**已損毀，無法打開**」，那是簽章封印壞掉（只會發生在下載過的檔案），
+  見 [`app/macos/README.md`](app/macos/README.md#常見問題)。
 * 拖曳沒反應時可用 `QLCPLUS_GUI_SELFTEST=1 "app/macos/dist/QLCplus轉檔工具.app/Contents/MacOS/QLCplus轉檔工具"`
   確認 tkdnd 有沒有被打包進去。
 

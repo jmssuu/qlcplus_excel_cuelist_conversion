@@ -28,8 +28,38 @@ app/macos/
 ## 常見問題
 
 **第一次開啟被 Gatekeeper 擋下（「無法驗證開發者」）**
-沒有簽章的 App 都會這樣。在 Finder 對它**按右鍵 →「打開」→ 再按一次「打開」**，
-之後就能直接雙擊。或到「系統設定 → 隱私權與安全性」按「仍要打開」。
+沒有經過 Apple 公證（notarize）的 App 都會這樣。到
+**「系統設定 → 隱私權與安全性」**往下捲，會看到剛才被擋的 App，按**「仍要打開」**。
+（macOS 15 之後 Apple 拿掉了右鍵 →「打開」的捷徑，只剩系統設定這條路。）
+
+**「已損毀，無法打開。你應該將其丟到垃圾桶」**
+這不是檔案真的壞掉，是**簽章封印被破壞**——Gatekeeper 對簽章無效的 App 只會給這個
+訊息，連「仍要打開」都不給。只會發生在**下載過**的檔案（帶 `com.apple.quarantine`
+標記），本機剛打包出來的那份不會有事，所以很容易到發佈給別人時才發現。
+
+`build_app.sh` 已經處理掉最常見的原因：PyInstaller 打包時會蓋一個 ad-hoc 簽章，
+而腳本後面用 PlistBuddy 改 `Info.plist`（加上拖曳 `.xlsx` 的設定）會破壞封印，
+所以改完之後一定要重簽：
+
+```bash
+codesign --force --deep --sign - "dist/QLCplus轉檔工具.app"
+codesign --verify --deep --strict "dist/QLCplus轉檔工具.app"   # 沒有輸出就是通過
+```
+
+拿到別人給的 `.app` 若還是出現這個訊息，可以直接清掉 quarantine 標記：
+
+```bash
+xattr -dr com.apple.quarantine "/Applications/QLCplus轉檔工具.app"
+```
+
+要診斷到底是哪裡不合格，用 Apple 自己的工具（macOS 14 以上）：
+
+```bash
+syspolicy_check distribution "dist/QLCplus轉檔工具.app"
+```
+
+只列出 `Adhoc Signed App` 與 `Notary Ticket Missing` 是正常的（未公證的必然結果）；
+若出現 `Invalid Info.plist (plist or signature have been modified)` 就是封印壞了，重簽即可。
 
 **訊息裡出現 `PermissionError: Operation not permitted`**
 macOS 的檔案權限（TCC）擋住了 App 覆寫**別的程式建立**的舊檔——最常見的情況是
