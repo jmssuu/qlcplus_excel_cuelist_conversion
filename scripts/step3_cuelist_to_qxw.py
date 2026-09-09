@@ -1,29 +1,39 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""把 cuelist CSV 轉換成 QLC+ 5 的 Sequence (.qxw)。
+"""把 cuelist 表格轉換成 QLC+ 5 的 Sequence，併進既有的 .qxw。
 
-CSV 版面 (以 cuelist_transform.csv 為例)::
+必須指定一份底稿 .qxw：燈具有幾台、fixture ID、DMX 位址、模式與通道長度
+全部從那份檔案讀出來（通道名稱再從對應的 .qxf 燈具定義檔補上），
+程式本身不內建任何燈具型號。
+
+表格版面::
 
     自動化表格 60RC舞台燈
     #,Duration(ms),Fade In(ms),Fade Out(ms),LSPA60RC[1-6] Total dimming,...,Note
     1,19030,0,0,255,255,51,183,,,,
 
 * 第一列可以是標題列，程式會自動往下找真正的表頭列。
-* 表頭欄位 ``<燈具>[索引] <通道>`` 會被對應到 QLC+ 的 fixture ID 與 channel 編號。
+* 表頭欄位 ``<燈具>[索引] <通道>`` 會對應到底稿裡的 fixture ID 與 channel 編號。
   索引可寫 ``1``、``1-6``、``1~6``、``1;3;5``；省略中括號代表該型號全部燈具。
+  索引就是底稿裡燈具名稱結尾的 ``[n]``，沒寫的話按 DMX 位址從 1 排。
+* 表頭寫到的燈具若不在底稿裡，該欄會被忽略，並在 log 印出是哪幾盞。
 * 值為空白或 0 的通道不會寫進 Step（與現有 .qxw 的寫法一致），可用 --keep-zeros 保留。
+
+.qxf 燈具定義檔的搜尋順序：底稿旁邊的 ``Fixtures/``、底稿所在資料夾、
+來源 .xlsx／專案資料夾旁的 ``Fixtures/``、上一層的 ``Fixtures/``、
+QLC+ 的使用者資料夾，最後才是 QLC+ 內建的燈具庫（照廠牌分子資料夾，會多找一層）。
 
 輸出模式::
 
-    workspace  產生一個可直接開啟的完整 .qxw（含 Fixture / BoundScene / Sequence）
+    merge      把 Scene + Sequence 插進底稿 .qxw（預設，自動配發新的 Function ID）
     snippet    只輸出 <Function Type="Sequence"> 區塊，方便貼進既有檔案
-    merge      把 Scene + Sequence 插進既有 .qxw（自動配發新的 Function ID）
+    workspace  依底稿的燈具重新產生一個完整 .qxw
 
 用法::
 
-    python3 step2_cuelist_to_qxw.py cuelist_transform.csv
-    python3 step2_cuelist_to_qxw.py any.csv --mode snippet
-    python3 step2_cuelist_to_qxw.py any.csv --mode merge --base 舞台燈同步音樂播放_預先建立顏色與模式版本.qxw
+    python3 step3_cuelist_to_qxw.py temp_專案資料夾          # 底稿放在資料夾裡
+    python3 step3_cuelist_to_qxw.py any.xlsx --base BaseStage.qxw
+    python3 step3_cuelist_to_qxw.py any.xlsx --base BaseStage.qxw --mode snippet
 """
 
 from __future__ import annotations
@@ -43,7 +53,7 @@ from xml.sax.saxutils import escape, quoteattr
 
 
 # --------------------------------------------------------------------------
-# 燈具定義（對應 舞台燈同步音樂播放_預先建立顏色與模式版本.qxw）
+# 燈具定義（全部從輸入的底稿 .qxw 與對應的 .qxf 定義檔讀出來）
 # --------------------------------------------------------------------------
 
 @dataclass(frozen=True)
@@ -64,48 +74,16 @@ class Profile:
     heads: Dict[int, Head]      # 表頭索引 -> Head
     aliases: Tuple[str, ...] = ()
     exclude_fade: Optional[int] = None
+    definition: Optional[Path] = None    # 通道名稱是哪個 .qxf 給的
 
     @property
     def channel_count(self) -> int:
         return len(self.channels)
 
 
-PROFILES: Tuple[Profile, ...] = (
-    Profile(
-        key="LSPA60RC",
-        manufacturer="LSPA",
-        model="60RC",
-        mode="mode1",
-        channels=("Total dimming", "Red", "Green", "Blue",
-                  "Stroboscopic", "Function", "Speed"),
-        heads={
-            1: Head(2, 0, "LSPA60RC [1]"),
-            2: Head(3, 7, "LSPA60RC [2]"),
-            3: Head(4, 14, "LSPA60RC [3]"),
-            4: Head(5, 21, "LSPA60RC [4]"),
-            5: Head(6, 28, "LSPA60RC [5]"),
-            6: Head(7, 35, "LSPA60RC [6]"),
-        },
-        aliases=("LSPA60RC", "60RC", "LSPA"),
-        exclude_fade=5,
-    ),
-    Profile(
-        key="ER554",
-        manufacturer="Guangzhou Enran",
-        model="ER-554",
-        mode="New mode",
-        channels=("Total dimming", "Red", "Green", "Blue", "White",
-                  "Stroboscopic", "Function", "Speed"),
-        # ER-554[0] = 左台面燈 (ID 9, addr 48), ER-554[1] = 右台面燈 (ID 8, addr 56)。
-        # 依 DMX address 由小到大排；workspace 裡的顯示名稱與此相反，
-        # 但 SequenceXX團_面光燈2 (ID 37) 的實際數值證實是這個順序。
-        heads={
-            0: Head(9, 48, "ER-554 [1]"),
-            1: Head(8, 56, "ER-554 [2]"),
-        },
-        aliases=("ER554", "ER-554", "ER", "台面燈"),
-    ),
-)
+# 燈具清單一律從輸入的底稿 .qxw 讀出來，這裡只是執行期的登記簿。
+PROFILES: List[Profile] = []
+PROFILE_BY_ALIAS: Dict[str, Profile] = {}
 
 
 # QLC+ 用 UINT_MAX 表示「沒有指定 function」
@@ -140,10 +118,263 @@ def normalize(text: str) -> str:
 
 _register_channel_aliases()
 
-PROFILE_BY_ALIAS: Dict[str, Profile] = {}
-for _p in PROFILES:
-    for _alias in (_p.key, _p.model, *_p.aliases):
-        PROFILE_BY_ALIAS[normalize(_alias)] = _p
+
+# 表頭有、但底稿沒有的燈具，集中起來在最後印一份總結
+IGNORED_HEADERS: set = set()
+
+
+def ignored_label(title: str) -> str:
+    """把「ER-554[1] Total dimming」縮成「ER-554[1]」，認不出來就原樣保留。"""
+    m = HEADER_RE.match(title.strip())
+    if not m:
+        return title.strip()
+    spec = (m.group("spec") or "").strip()
+    return f"{m.group('model').strip()}[{spec}]" if spec else m.group("model").strip()
+
+HEAD_INDEX_RE = re.compile(r"\[\s*(\d+)\s*\]\s*$")
+FIXTURE_DEF_SUFFIXES = (".qxf", ".qxd")
+
+
+def install_profiles(profiles: List[Profile]) -> None:
+    """換掉執行期的燈具登記簿（別名一律用正規化後的字串當 key）。"""
+    PROFILES[:] = profiles
+    PROFILE_BY_ALIAS.clear()
+    for profile in profiles:
+        for alias in (profile.key, profile.model, *profile.aliases):
+            key = normalize(alias)
+            if key:
+                PROFILE_BY_ALIAS.setdefault(key, profile)
+
+
+def user_fixture_dir() -> Path:
+    """QLC+ 讓使用者自己放燈具檔的資料夾（新增的 .qxf 就是丟在這裡）。"""
+    home = Path.home()
+    if sys.platform == "darwin":
+        return home / "Library/Application Support/QLC+/Fixtures"
+    if sys.platform == "win32":
+        return home / "QLC+/Fixtures"
+    return home / ".qlcplus/Fixtures"
+
+
+def system_fixture_dir() -> Path:
+    """QLC+ 安裝時內建的燈具庫。"""
+    if sys.platform == "darwin":
+        return Path("/Applications/QLC+.app/Contents/Resources/Fixtures")
+    if sys.platform == "win32":
+        return Path("C:/QLC+/Fixtures")
+    return Path("/usr/share/qlcplus/Fixtures")
+
+
+def fixture_def_dirs(base_path: Path,
+                     extra: Tuple[Path, ...] = ()) -> List[Path]:
+    """.qxf 燈具定義檔可能放的位置，由近到遠。
+
+    ``extra`` 是來源 .xlsx / 專案資料夾，底稿會被第 1 步複製進 temp_ 資料夾，
+    所以連上一層的 Fixtures/ 也一起找，最後才是 QLC+ 自己的燈具庫。
+    """
+    here = base_path.parent
+    dirs = [here / "Fixtures", here]
+    for folder in extra:
+        dirs += [folder / "Fixtures", folder]
+    dirs += [here.parent / "Fixtures", here.parent,
+             user_fixture_dir(), system_fixture_dir()]
+    return dirs
+
+
+def qxf_files(folder: Path) -> List[Path]:
+    """資料夾裡的 .qxf；QLC+ 內建燈具庫是照廠牌分子資料夾放的，所以多找一層。"""
+    found: List[Path] = []
+    try:
+        entries = sorted(folder.iterdir())
+    except (PermissionError, OSError):
+        return found
+    for entry in entries:
+        if entry.is_dir():
+            try:
+                found += [child for child in sorted(entry.iterdir())
+                          if child.suffix.lower() in FIXTURE_DEF_SUFFIXES]
+            except (PermissionError, OSError):
+                continue
+        elif entry.suffix.lower() in FIXTURE_DEF_SUFFIXES:
+            found.append(entry)
+    return found
+
+
+def read_fixture_def(path: Path) -> Optional[Tuple[str, str, Dict[str, Tuple[str, ...]]]]:
+    """讀一個 .qxf，回傳 (廠牌, 型號, {模式名稱: 通道名稱依序})。"""
+    try:
+        root = ET.parse(path).getroot()
+    except (ET.ParseError, OSError):
+        return None
+    manufacturer = model = ""
+    modes: Dict[str, Tuple[str, ...]] = {}
+    for child in root:
+        name = _tag(child)
+        if name == "Manufacturer":
+            manufacturer = (child.text or "").strip()
+        elif name == "Model":
+            model = (child.text or "").strip()
+        elif name == "Mode":
+            channels = sorted(
+                ((int(c.get("Number", "0")), (c.text or "").strip())
+                 for c in child if _tag(c) == "Channel"),
+                key=lambda pair: pair[0])
+            modes[child.get("Name", "")] = tuple(name for _, name in channels)
+    if not model:
+        return None
+    return manufacturer, model, modes
+
+
+def load_fixture_defs(base_path: Path, extra: Tuple[Path, ...] = ()) \
+        -> Dict[Tuple[str, str], Tuple[Dict[str, Tuple[str, ...]], Path]]:
+    """掃描所有可能的資料夾，建出 (廠牌, 型號) -> ({模式: 通道名稱}, 來源檔) 的對照表。"""
+    return collect_fixture_defs(fixture_def_dirs(base_path, extra))
+
+
+def collect_fixture_defs(folders: List[Path]) \
+        -> Dict[Tuple[str, str], Tuple[Dict[str, Tuple[str, ...]], Path]]:
+    """掃描指定的資料夾（含一層子資料夾），先掃到的優先。"""
+    defs: Dict[Tuple[str, str], Tuple[Dict[str, Tuple[str, ...]], Path]] = {}
+    seen_dirs = set()
+    for folder in folders:
+        try:
+            resolved = folder.resolve()
+        except OSError:
+            continue
+        if resolved in seen_dirs or not folder.is_dir():
+            continue
+        seen_dirs.add(resolved)
+        for entry in qxf_files(folder):
+            parsed = read_fixture_def(entry)
+            if parsed is None:
+                continue
+            manufacturer, model, modes = parsed
+            defs.setdefault((normalize(manufacturer), normalize(model)),
+                            (modes, entry))
+    return defs
+
+
+def workspace_fixtures(base_path: Path) -> List[Dict[str, str]]:
+    """把底稿 .qxw 裡的 <Fixture> 全部讀出來（保留原始欄位字串）。"""
+    try:
+        root = ET.parse(base_path).getroot()
+    except (ET.ParseError, OSError) as exc:
+        raise CsvFormatError(f"{base_path} 不是可以解析的 .qxw：{exc}") from exc
+    fixtures = []
+    for element in root.iter():
+        if _tag(element) != "Fixture":
+            continue
+        entry = {_tag(child): (child.text or "").strip() for child in element}
+        if entry.get("ID") and entry.get("Address") is not None:
+            fixtures.append(entry)
+    return fixtures
+
+
+def profile_aliases(manufacturer: str, model: str, names: List[str]) -> Tuple[str, ...]:
+    """表頭可以用的型號寫法：型號、廠牌+型號，以及燈具名稱去掉 [n] 之後的部分。"""
+    aliases = [model, f"{manufacturer}{model}", f"{manufacturer} {model}"]
+    for name in names:
+        aliases.append(HEAD_INDEX_RE.sub("", name).strip())
+    out: List[str] = []
+    for alias in aliases:
+        alias = alias.strip()
+        if alias and normalize(alias) not in {normalize(a) for a in out}:
+            out.append(alias)
+    return tuple(out)
+
+
+def profiles_from_workspace(base_path: Path,
+                            extra: Tuple[Path, ...] = ()) -> List[Profile]:
+    """依底稿 .qxw 裡實際存在的燈具建出 Profile 清單。
+
+    通道名稱來自對應的 .qxf 燈具定義檔；找不到定義檔就只留通道編號
+    （表頭只能寫 ``型號[1] ch3`` 這種數字寫法），並在 log 裡說明。
+    """
+    defs = load_fixture_defs(base_path, extra)
+    groups: Dict[Tuple[str, str, str], List[Dict[str, str]]] = {}
+    for entry in workspace_fixtures(base_path):
+        key = (entry.get("Manufacturer", ""), entry.get("Model", ""),
+               entry.get("Mode", ""))
+        groups.setdefault(key, []).append(entry)
+
+    profiles: List[Profile] = []
+    for (manufacturer, model, mode), entries in groups.items():
+        entries.sort(key=lambda e: int(e.get("Address", "0") or 0))
+        count = max(int(e.get("Channels", "0") or 0) for e in entries)
+
+        modes, definition = defs.get((normalize(manufacturer), normalize(model)),
+                                     ({}, None))
+        channels = modes.get(mode)
+        if channels is None and len(modes) == 1:
+            # 定義檔只有一種模式時，模式名稱對不上也照用
+            channels = next(iter(modes.values()))
+        if channels is None:
+            channels = ()
+            definition = None
+        channels = tuple(channels[:count])
+        if len(channels) < count:      # 定義檔缺了或對不上，補成純編號
+            channels += tuple(f"ch{i}" for i in range(len(channels), count))
+
+        # 表頭索引優先用燈具名稱結尾的 [n]，沒有就按 DMX 位址從 1 排
+        heads: Dict[int, Head] = {}
+        pending: List[Dict[str, str]] = []
+        for entry in entries:
+            match = HEAD_INDEX_RE.search(entry.get("Name", ""))
+            index = int(match.group(1)) if match else None
+            if index is None or index in heads:
+                pending.append(entry)
+                continue
+            heads[index] = Head(int(entry["ID"]), int(entry.get("Address", "0") or 0),
+                                entry.get("Name", "") or f"{model} [{index}]")
+        next_index = 1
+        for entry in pending:
+            while next_index in heads:
+                next_index += 1
+            heads[next_index] = Head(int(entry["ID"]),
+                                     int(entry.get("Address", "0") or 0),
+                                     entry.get("Name", "") or f"{model} [{next_index}]")
+
+        exclude_fade = next((int(e["ExcludeFade"]) for e in entries
+                             if e.get("ExcludeFade", "").isdigit()), None)
+        profiles.append(Profile(
+            key=normalize(f"{manufacturer}{model}") or normalize(model),
+            manufacturer=manufacturer,
+            model=model,
+            mode=mode,
+            channels=channels,
+            heads=heads,
+            aliases=profile_aliases(manufacturer, model,
+                                    [e.get("Name", "") for e in entries]),
+            exclude_fade=exclude_fade,
+            definition=definition,
+        ))
+    profiles.sort(key=lambda p: min(h.address for h in p.heads.values()))
+    return profiles
+
+
+def describe_profiles(profiles: List[Profile], base_path: Path) -> List[str]:
+    """把讀到的燈具設定整理成 log 文字。"""
+    lines = [f"  底稿 {base_path.name} 的燈具設定："]
+    for profile in profiles:
+        indices = sorted(profile.heads)
+        detail = "、".join(
+            f"[{i}] {profile.heads[i].name}(ID {profile.heads[i].fixture_id}, "
+            f"DMX {profile.heads[i].address + 1})" for i in indices)
+        named = [c for c in profile.channels if not re.fullmatch(r"ch\d+", c)]
+        channel_note = (", ".join(profile.channels) if named
+                        else "（找不到 .qxf 定義檔，表頭只能寫通道編號）")
+        source = (f"        定義檔 {profile.definition}" if profile.definition
+                  else None)
+        lines.append(
+            f"    - {profile.manufacturer} {profile.model} [{profile.mode}] "
+            f"× {len(profile.heads)} 台，{profile.channel_count} ch/台")
+        lines.append(f"        表頭索引 {detail}")
+        lines.append(f"        通道 {channel_note}")
+        if source:
+            lines.append(source)
+    if not profiles:
+        lines.append("    （這份 .qxw 裡沒有任何 <Fixture>）")
+    return lines
 
 
 def strip_profile_prefix(title: str, alias: str) -> Optional[str]:
@@ -239,14 +470,12 @@ def parse_index_spec(spec: str, profile: Profile) -> Tuple[int, ...]:
             continue
         raise CsvFormatError(f"無法解析燈具索引: {token!r}")
 
-    unknown = [i for i in out if i not in profile.heads]
-    if unknown:
-        known = ", ".join(str(i) for i in sorted(profile.heads))
-        raise CsvFormatError(
-            f"{profile.model} 沒有索引 {unknown}（可用的索引: {known}）"
-        )
-    # 去重但保留順序
-    return tuple(dict.fromkeys(out))
+    # 去重但保留順序；底稿裡沒有的索引直接忽略，另外記下來給 log 用
+    wanted = tuple(dict.fromkeys(out))
+    for index in wanted:
+        if index not in profile.heads:
+            IGNORED_HEADERS.add(f"{profile.model}[{index}]")
+    return tuple(i for i in wanted if i in profile.heads)
 
 
 def parse_header(header: List[str]) -> Tuple[Dict[str, int], List[ColumnSpec], List[str]]:
@@ -292,13 +521,11 @@ def parse_header(header: List[str]) -> Tuple[Dict[str, int], List[ColumnSpec], L
             continue
 
         heads = tuple(profile.heads[i] for i in parse_index_spec(index_spec, profile))
+        if not heads:      # 型號有，但底稿裡沒有這幾號燈
+            unknown.append(title)
+            continue
         columns.append(ColumnSpec(col, profile, heads, channel, title))
 
-    if not columns:
-        raise CsvFormatError(
-            "表頭裡找不到任何燈具通道欄位，"
-            "請確認格式類似 'LSPA60RC[1-6] Red' 或 'ER-554[0] Blue'。"
-        )
     return meta, columns, unknown
 
 
@@ -625,9 +852,12 @@ def render_sequence(steps: List[Step], columns: List[ColumnSpec], *,
         f'{indent} <SpeedModes FadeIn="PerStep" FadeOut="PerStep" Duration="PerStep"/>',
     ]
     for number, step in enumerate(steps):
+        # 表格 Note 欄的內容照抄到 Step 的 Note 屬性（QLC+ 步驟編輯器的「Note」欄）；
+        # 空白就不寫，跟 QLC+ 自己存檔的行為一致。
+        note_attr = f" Note={quoteattr(step.note)}" if step.note else ""
         lines.append(
             f'{indent} <Step Number="{number}" FadeIn="{step.fade_in}" '
-            f'Hold="{step.hold}" FadeOut="{step.fade_out}" '
+            f'Hold="{step.hold}" FadeOut="{step.fade_out}"{note_attr} '
             f'Values="{total_channels}">{escape(step.signature())}</Step>'
         )
     lines.append(f'{indent}</Function>')
@@ -669,6 +899,10 @@ def render_fixtures(shows: List[ShowSpec], indent: str = "  ") -> str:
 
 AUDIO_TRACK_COLOR = "#608053"
 SEQUENCE_TRACK_COLOR = "#646464"
+
+# Show 軌道上的配樂尾巴往後多留 5 秒（開始時間不變），
+# 免得歌曲最後一拍剛好卡在 Show 結尾被切掉。Audio 函式本身的長度不動。
+AUDIO_TAIL_MS = 5000
 
 
 def render_audio(audio: AudioSpec, *, function_id: int, folder: str,
@@ -725,7 +959,8 @@ def render_functions(shows: List[ShowSpec], *, first_id: int, run_order: str,
             next_id += 1
             chunks.append(render_audio(show.audio, function_id=audio_id,
                                        folder=music_folder, indent=indent))
-            tracks.append((audio_id, show.audio.duration_ms, AUDIO_TRACK_COLOR))
+            tracks.append((audio_id, show.audio.duration_ms + AUDIO_TAIL_MS,
+                           AUDIO_TRACK_COLOR))
 
         for block in show.blocks:
             scene_id, sequence_id = next_id, next_id + 1
@@ -1025,6 +1260,13 @@ def load_blocks(paths: List[Path], *, keep_zeros: bool, trim: bool,
                 except CsvFormatError as exc:
                     raise CsvFormatError(f"{where}「{name}」: {exc}") from exc
 
+                ignored = list(dict.fromkeys(ignored_label(t) for t in unknown))
+                IGNORED_HEADERS.update(ignored)
+                if not columns:
+                    print(f"  ⚠ 略過 {name}：表頭裡的燈具都不在底稿裡"
+                          f"（{'、'.join(ignored)}）", file=sys.stderr)
+                    continue
+
                 steps = build_steps(raw.rows, meta, columns, keep_zeros)
                 if not steps:
                     print(f"  ⚠ 略過沒有 Step 的表: {name}", file=sys.stderr)
@@ -1103,6 +1345,19 @@ def audio_source(mp3: Path, out_path: Path) -> str:
         return str(mp3)
 
 
+def list_dir(path: Path) -> List[Path]:
+    """列出資料夾內容；被 macOS 隱私權限擋下時給出看得懂的說明而不是 traceback。"""
+    try:
+        return sorted(path.iterdir())
+    except PermissionError:
+        raise SystemExit(
+            f"沒有權限讀取資料夾：{path}\n"
+            "macOS 預設會擋下應用程式列出「文件 / 桌面 / 下載 / iCloud 雲碟」裡的內容。\n"
+            "請到「系統設定 → 隱私權與安全性 → 檔案與資料夾」（或「完全取用磁碟」）"
+            "把本程式打開，然後重新執行；或把資料改放到不受保護的位置。"
+        )
+
+
 def find_base_qxw(root: Path, out_path: Path) -> Optional[Path]:
     """找專案資料夾底下的底稿 .qxw（不含子資料夾）。
 
@@ -1111,7 +1366,7 @@ def find_base_qxw(root: Path, out_path: Path) -> Optional[Path]:
     """
     resolved_out = out_path.resolve()
     candidates = sorted(
-        (child for child in root.iterdir()
+        (child for child in list_dir(root)
          if child.is_file() and child.suffix.lower() == ".qxw"
          and not child.name.startswith((".", "~$"))
          and ".autosave" not in child.name.lower()
@@ -1125,27 +1380,6 @@ def find_base_qxw(root: Path, out_path: Path) -> Optional[Path]:
         print(f"  ⚠ 底下有多個 .qxw，採用 {candidates[0].name}（略過 {others}）",
               file=sys.stderr)
     return candidates[0]
-
-
-def base_fixture_ids(base_path: Path) -> set:
-    """取出底稿裡已定義的 Fixture ID。"""
-    text = base_path.read_text(encoding="utf-8")
-    engine = text[:text.rindex("</Engine>")] if "</Engine>" in text else text
-    return {int(i) for i in re.findall(r"<Fixture>.*?<ID>(\d+)</ID>", engine, re.S)}
-
-
-def warn_missing_fixtures(base_path: Path, shows: List["ShowSpec"]) -> None:
-    """合併前確認底稿有這些 Sequence 用到的燈具。"""
-    try:
-        available = base_fixture_ids(base_path)
-    except (OSError, ValueError):
-        return
-    needed = {head.fixture_id: head.name for _, head in all_fixtures(shows)}
-    missing = sorted(fid for fid in needed if fid not in available)
-    if missing:
-        detail = ", ".join(f"{needed[fid]}(ID {fid})" for fid in missing)
-        print(f"  ⚠ 底稿 {base_path.name} 沒有這些燈具，合併後這些通道不會生效: "
-              f"{detail}", file=sys.stderr)
 
 
 FORQXW_SUFFIX = "_forqxw"
@@ -1175,16 +1409,16 @@ def scan_project(root: Path, out_path: Path, *, keep_zeros: bool, trim: bool,
     子資料夾裡的 .xlsx/.csv 會轉成 Sequence，.mp3 會變成配樂；
     若資料夾本身就放著表格，則整個資料夾當成單一個 Show。
     """
-    folders = sorted((child for child in root.iterdir()
+    folders = sorted((child for child in list_dir(root)
                       if child.is_dir() and not child.name.startswith(".")),
                      key=lambda path: path.name)
     if not any(child.suffix.lower() in TABLE_SUFFIXES
-               for folder in folders for child in folder.iterdir()):
+               for folder in folders for child in list_dir(folder)):
         folders = [root]
 
     shows: List[ShowSpec] = []
     for folder in folders:
-        entries = sorted(folder.iterdir(), key=lambda path: path.name)
+        entries = sorted(list_dir(folder), key=lambda path: path.name)
         tables = [e for e in entries if e.suffix.lower() in TABLE_SUFFIXES
                   and not e.name.startswith("~$")]
         tables = prefer_forqxw(tables)
@@ -1242,7 +1476,8 @@ def main(argv: Optional[List[str]] = None) -> int:
                         help="輸出型態。預設會自動判斷：專案資料夾底下有 .qxw "
                              "就用 merge 併進去，否則產生獨立的 workspace")
     parser.add_argument("--base", type=Path,
-                        help="merge 模式要插入的既有 .qxw")
+                        help="要合併的既有 .qxw（必填；燈具設定就是從這裡讀）。"
+                             "來源是專案資料夾時，會自動找資料夾底下的那份")
     parser.add_argument("--name", action="append",
                         help="Sequence 名稱；可重複指定，依序對應每張表")
     parser.add_argument("--name-from", choices=("sheet", "title"), default="sheet",
@@ -1279,10 +1514,10 @@ def main(argv: Optional[List[str]] = None) -> int:
         for path in paths:
             print(f"{path}")
             if path.is_dir():
-                for folder in sorted((c for c in path.iterdir()
+                for folder in sorted((c for c in list_dir(path)
                                       if c.is_dir() and not c.name.startswith(".")),
                                      key=lambda c: c.name):
-                    entries = sorted(folder.iterdir(), key=lambda c: c.name)
+                    entries = sorted(list_dir(folder), key=lambda c: c.name)
                     tables = [e.name for e in entries
                               if e.suffix.lower() in TABLE_SUFFIXES
                               and not e.name.startswith("~$")]
@@ -1308,6 +1543,31 @@ def main(argv: Optional[List[str]] = None) -> int:
     out_path = args.out or (paths[0].with_suffix(".qxw") if project is None
                             else project.resolve().with_suffix(".qxw"))
 
+    # 燈具設定一律從底稿 .qxw 讀，所以底稿是必填的
+    base = args.base
+    if base is None and project is not None:
+        base = find_base_qxw(project, out_path)
+    if base is None:
+        parser.error(
+            "沒有指定要合併的 .qxw。燈具的位址、數量與通道設定都是從這份檔案讀出來的，\n"
+            "  請把底稿 .qxw 放進專案資料夾底下（run_all.py／GUI 的第三個參數），\n"
+            "  或用 --base 直接指定。")
+    print(f"  底稿: {base.name}", file=sys.stderr)
+
+    # .qxf 燈具定義檔除了底稿旁邊，也找來源 .xlsx／專案資料夾底下的 Fixtures/
+    extra_dirs = tuple(dict.fromkeys(
+        path if path.is_dir() else path.parent for path in paths))
+    try:
+        profiles = profiles_from_workspace(base, extra_dirs)
+    except CsvFormatError as exc:
+        parser.error(str(exc))
+    install_profiles(profiles)
+    for line in describe_profiles(profiles, base):
+        print(line, file=sys.stderr)
+    if not profiles:
+        parser.error(f"{base} 裡沒有任何燈具（<Fixture>），無法對照表頭的通道。")
+
+    IGNORED_HEADERS.clear()
     try:
         if project is not None:
             shows = scan_project(project, out_path, keep_zeros=args.keep_zeros,
@@ -1322,19 +1582,12 @@ def main(argv: Optional[List[str]] = None) -> int:
     except CsvFormatError as exc:
         parser.error(str(exc))
 
-    # 專案資料夾底下若放了底稿 .qxw，預設就併進去；沒有就產生獨立的 workspace。
-    base = args.base
-    if base is None and project is not None and args.mode in (None, "merge"):
-        base = find_base_qxw(project, out_path)
-        if base is not None:
-            print(f"  底稿: {base.name}", file=sys.stderr)
+    if IGNORED_HEADERS:
+        detail = "、".join(sorted(IGNORED_HEADERS))
+        print(f"  ⚠ 這些燈具不在 {base.name} 裡，相關欄位已忽略: {detail}",
+              file=sys.stderr)
 
-    mode = args.mode or ("merge" if base is not None else "workspace")
-    if mode == "merge":
-        if base is None:
-            parser.error("merge 模式需要 --base 指定既有的 .qxw，"
-                         "或把底稿放進專案資料夾底下")
-        warn_missing_fixtures(base, shows)
+    mode = args.mode or "merge"
 
     shared = dict(run_order=args.run_order, direction=args.direction,
                   folder=args.folder, music_folder=args.music_folder,

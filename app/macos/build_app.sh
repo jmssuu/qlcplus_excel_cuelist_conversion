@@ -49,6 +49,15 @@ if [ -f "$PLIST" ]; then
         -c "Add :CFBundleDocumentTypes:0:LSItemContentTypes array" \
         -c "Add :CFBundleDocumentTypes:0:LSItemContentTypes:0 string org.openxmlformats.spreadsheetml.sheet" \
         "$PLIST" >/dev/null
+
+    # 沒有這些說明字串，macOS 會直接擋掉 App 讀取「文件 / 桌面 / 下載 / 外接磁碟」
+    # 的內容（iterdir 收到 Operation not permitted），連授權視窗都不會跳。
+    DESC="需要讀取你選擇的總表、Music 資料夾與底稿 .qxw。"
+    for KEY in NSDocumentsFolderUsageDescription NSDesktopFolderUsageDescription \
+               NSDownloadsFolderUsageDescription NSRemovableVolumesUsageDescription; do
+        /usr/libexec/PlistBuddy -c "Delete :$KEY" "$PLIST" 2>/dev/null || true
+        /usr/libexec/PlistBuddy -c "Add :$KEY string $DESC" "$PLIST" >/dev/null
+    done
 fi
 
 # 改完 Info.plist 一定要重簽：PyInstaller 打包時已經蓋了一個 ad-hoc 簽章，

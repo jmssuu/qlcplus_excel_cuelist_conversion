@@ -6,7 +6,7 @@
 | 程式 | 做什麼 | 需要套件 |
 |---|---|---|
 | `run_all.py` | 一次跑完下面四步 | openpyxl |
-| `step1_split_cuelist_xlsx.py` | 第 1 步：把總表拆成每張工作表的 cuelist，並複製同名 mp3 | openpyxl |
+| `step1_split_cuelist_xlsx.py` | 第 1 步：把總表拆成每張工作表的 cuelist，複製同名 mp3 與底稿 `.qxw` | openpyxl |
 | `step2_fades_to_black.py` | 第 2 步：把 `Fades to black(ms)` 展開成黑燈 cue，另存 `…_forqxw.xlsx` | openpyxl |
 | `step3_cuelist_to_qxw.py` | 第 3 步：表格／專案資料夾 → QLC+ `.qxw` | 無（純標準函式庫） |
 | `step4_retarget_qxw_music.py` | 第 4 步：把 `.qxw` 裡的音檔路徑改回原本的 `Music/` | 無 |
@@ -23,8 +23,13 @@ python3 scripts/run_all.py sample_file/AllCueList.xlsx sample_file/Music sample_
 ```
 
 參數依序是：**總表 `.xlsx`**、**Music 資料夾**（省略時用執行目錄下的 `Music`）、
-**底稿 `.qxw`**（可省略）。另有 `--steps 1|2|3|4` 只跑到第幾步，
+**底稿 `.qxw`**。另有 `--steps 1|2|3|4` 只跑到第幾步，
 `--` 後面的參數會原封不動傳給 `step4_retarget_qxw_music.py`。
+
+⚠️ **底稿 `.qxw` 是必要的。** 第 3 步的燈具設定（有幾台、fixture ID、DMX 位址、
+模式與通道長度）全部從底稿讀出來，沒給就會中止並提示。通道名稱則來自對應的
+`.qxf` 燈具定義檔，會依序找底稿旁的 `Fixtures/`、來源 `.xlsx` 旁的 `Fixtures/`、
+QLC+ 使用者燈具庫與內建燈具庫。
 
 ⚠️ **前 3 張工作表會被跳過。** 第 1 步預設從第 4 張工作表開始
 （`step1_split_cuelist_xlsx.py --start-sheet 4`），因為前面通常是「說明」「下拉選單」
@@ -38,14 +43,19 @@ python3 scripts/run_all.py sample_file/AllCueList.xlsx sample_file/Music sample_
 
 ```
 <outdir>/temp_<檔名>/          中繼：每張工作表一個子資料夾
-    1_raw.xlsx        第 1 步拆出來的原始表
-    2_forqxw.xlsx     第 2 步展開黑燈 cue 後的表（第 3 步讀這份）
-    <組名>.mp3        配樂
+    <底稿>.qxw        第 1 步複製進來的底稿，第 3 步會自動當成 merge 底稿
+    <工作表名>/
+        1_raw.xlsx        第 1 步拆出來的原始表
+        2_forqxw.xlsx     第 2 步展開黑燈 cue 後的表（第 3 步讀這份）
+        <組名>.mp3        配樂
 <outdir>/<檔名>.qxw            成品
 <outdir>/<檔名>.qxw.bak        第 4 步改路徑前的備份
 ```
 
-`temp_<檔名>/` 只是中繼產物，確認 `.qxw` 沒問題後可以刪掉。
+`temp_<檔名>/` 只是中繼產物，確認 `.qxw` 沒問題後可以刪掉；
+拖曳介面預設就會在轉換結束後自動刪掉它。
+第 1 步每次執行都會**先把既有的 `temp_<檔名>/` 清空**再重新產生，
+避免上一次的殘留（尤其是舊的底稿 `.qxw`）混進這次的結果。
 
 ## 單獨使用
 
@@ -58,7 +68,7 @@ python3 scripts/step2_fades_to_black.py sample_file/temp_AllCueList --dry-run
 
 # 只轉表格，不拆表（每張工作表 / 每個自動化表格一條 Sequence）
 python3 scripts/step3_cuelist_to_qxw.py sample_file/AllCueList.xlsx --list
-python3 scripts/step3_cuelist_to_qxw.py 燈流.xlsx -o 我的.qxw
+python3 scripts/step3_cuelist_to_qxw.py 燈流.xlsx --base BaseStage.qxw -o 我的.qxw
 
 # 只改音檔路徑（可一次給多個 .qxw，--dry-run 先試跑）
 python3 scripts/step4_retarget_qxw_music.py sample_file/AllCueList.qxw sample_file/Music --dry-run

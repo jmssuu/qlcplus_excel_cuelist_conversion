@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE Workspace>
-<Workspace xmlns="http://www.qlcplus.org/Workspace" CurrentWindow="VC">
+<Workspace xmlns="http://www.qlcplus.org/Workspace" CurrentWindow="FIXANDFUNC">
  <Creator>
   <Name>Q Light Controller Plus</Name>
   <Version>5.2.2</Version>
@@ -213,6 +213,18 @@
    <FixtureVal ID="3">1,153,2,255,3,255</FixtureVal>
    <FixtureVal ID="2">1,153,2,255,3,255</FixtureVal>
   </Function>
+  <Function ID="8" Type="Collection" Name="ER554_面燈_暖白_亮度100%" Path="Collection面燈&amp;染色燈">
+   <Step Number="0">11</Step>
+   <Step Number="1">115</Step>
+  </Function>
+  <Function ID="9" Type="Collection" Name="ER554_面燈_暖白_亮度75%" Path="Collection面燈&amp;染色燈">
+   <Step Number="0">11</Step>
+   <Step Number="1">114</Step>
+  </Function>
+  <Function ID="10" Type="Collection" Name="ER554_面燈_暖白_亮度50%" Path="Collection面燈&amp;染色燈">
+   <Step Number="0">11</Step>
+   <Step Number="1">113</Step>
+  </Function>
   <Function ID="11" Type="Scene" Name="ER554_顏色_暖白" Path="ER554_Color">
    <Speed FadeIn="0" FadeOut="0" Duration="0"/>
    <FixtureVal ID="9">1,81,2,19,3,0,4,255</FixtureVal>
@@ -345,6 +357,10 @@
    <FixtureVal ID="9">1,255,2,52,3,0,4,0</FixtureVal>
    <FixtureVal ID="8">1,255,2,52,3,0,4,0</FixtureVal>
   </Function>
+  <Function ID="29" Type="Collection" Name="ER554_面燈_暖白_亮度25%" Path="Collection面燈&amp;染色燈">
+   <Step Number="0">11</Step>
+   <Step Number="1">112</Step>
+  </Function>
   <Function ID="30" Type="Scene" Name="60RC_顏色_橘紅" Path="60RC_Color">
    <Speed FadeIn="0" FadeOut="0" Duration="0"/>
    <FixtureVal ID="7">1,255,2,105,3,12</FixtureVal>
@@ -357,6 +373,10 @@
   <Function ID="31" Type="Scene" Name="測試同步MultiPlay" Hidden="True">
    <Speed FadeIn="0" FadeOut="0" Duration="0"/>
   </Function>
+  <Function ID="32" Type="Collection" Name="ER554_面燈_暖白_亮度0%" Path="Collection面燈&amp;染色燈">
+   <Step Number="0">85</Step>
+   <Step Number="1">11</Step>
+  </Function>
   <Function ID="33" Type="Scene" Name="New Scene" Hidden="True">
    <Speed FadeIn="0" FadeOut="0" Duration="0"/>
   </Function>
@@ -364,6 +384,10 @@
    <Speed FadeIn="0" FadeOut="0" Duration="0"/>
    <FixtureVal ID="9">1,0,2,0,3,51,4,255</FixtureVal>
    <FixtureVal ID="8">1,0,2,0,3,51,4,255</FixtureVal>
+  </Function>
+  <Function ID="35" Type="Collection" Name="60RC_染色燈_暖白_亮度100%" Path="Collection面燈&amp;染色燈">
+   <Step Number="0">3</Step>
+   <Step Number="1">103</Step>
   </Function>
   <Function ID="36" Type="Scene" Name="60RC_顏色_膚色" Path="60RC_Color">
    <Speed FadeIn="0" FadeOut="0" Duration="0"/>
@@ -373,6 +397,14 @@
    <FixtureVal ID="4">1,255,2,149,3,119</FixtureVal>
    <FixtureVal ID="3">1,255,2,149,3,119</FixtureVal>
    <FixtureVal ID="2">1,255,2,149,3,119</FixtureVal>
+  </Function>
+  <Function ID="37" Type="Collection" Name="60RC_染色燈_暖白_亮度0%" Path="Collection面燈&amp;染色燈">
+   <Step Number="0">72</Step>
+   <Step Number="1">3</Step>
+  </Function>
+  <Function ID="38" Type="Collection" Name="ER554+60RC_面燈染色燈_暖白_亮度100%" Path="Collection面燈&amp;染色燈">
+   <Step Number="0">8</Step>
+   <Step Number="1">35</Step>
   </Function>
   <Function ID="39" Type="Scene" Name="60RC_顏色_白" Path="60RC_Color">
    <Speed FadeIn="0" FadeOut="0" Duration="0"/>
@@ -391,6 +423,14 @@
    <FixtureVal ID="4">1,255,2,141,3,0</FixtureVal>
    <FixtureVal ID="3">1,255,2,141,3,0</FixtureVal>
    <FixtureVal ID="2">1,255,2,141,3,0</FixtureVal>
+  </Function>
+  <Function ID="41" Type="Collection" Name="ER554+60RC_面燈染色燈_暖白_亮度75%" Path="Collection面燈&amp;染色燈">
+   <Step Number="0">9</Step>
+   <Step Number="1">35</Step>
+  </Function>
+  <Function ID="42" Type="Collection" Name="ER554+60RC_面燈染色燈_暖白_亮度0%" Path="Collection面燈&amp;染色燈">
+   <Step Number="0">32</Step>
+   <Step Number="1">37</Step>
   </Function>
   <Function ID="46" Type="Scene" Name="ER554_顏色_橘" Path="ER554_Color">
    <Speed FadeIn="0" FadeOut="0" Duration="0"/>

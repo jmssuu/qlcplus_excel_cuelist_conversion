@@ -3,9 +3,11 @@
 把表格（Excel / CSV）形式的燈流轉換成 [QLC+ 5](https://www.qlcplus.org/) 的 Sequence，
 省去在 QLC+ 介面裡一步一步手刻 Step 的時間。
 
-主要工具是 **`step3_cuelist_to_qxw.py`**：讀 `.xlsx` 或 `.csv`，輸出可直接開啟的 `.qxw`，
-或把 Sequence 插進既有的 workspace。
-**每張工作表、每個自動化表格都會變成一條獨立的 Sequence。**
+主要工具是 **`step3_cuelist_to_qxw.py`**：讀 `.xlsx` 或 `.csv`，把 Sequence 併進
+一份既有的底稿 `.qxw`。**每張工作表、每個自動化表格都會變成一條獨立的 Sequence。**
+
+**底稿 `.qxw` 是必要的**——燈具有幾台、fixture ID、DMX 位址、模式與通道長度
+全部從底稿讀出來，程式本身不內建任何燈具型號。
 
 也可以直接餵一個**專案資料夾**：底下每個子資料夾會變成一個 Show，
 把該資料夾的配樂與轉出的 Sequence 並排放在時間軸 0。
@@ -47,12 +49,13 @@ QLCplus_excel_conversion/
 python3 scripts/step3_cuelist_to_qxw.py sample_file/AllCueList.xlsx --list
 
 # 只轉某一張工作表
-python3 scripts/step3_cuelist_to_qxw.py sample_file/AllCueList.xlsx --sheet "XX組-表演名稱" -o XX組.qxw
+python3 scripts/step3_cuelist_to_qxw.py sample_file/AllCueList.xlsx \
+    --base sample_file/BaseStage.qxw --sheet "XX組-表演名稱" -o XX組.qxw
 
 # 一次吃多個檔，全部併進同一個 .qxw
-python3 scripts/step3_cuelist_to_qxw.py 染色燈.csv 台面燈.csv -o 全部.qxw
+python3 scripts/step3_cuelist_to_qxw.py 染色燈.csv 台面燈.csv --base 底稿.qxw -o 全部.qxw
 
-# 一次跑完拆表 → 轉檔 → 改音檔路徑
+# 一次跑完拆表 → 展開黑燈 cue → 轉檔 → 改音檔路徑
 # --outdir 指定產物要放哪；不給的話會產生在「目前所在的資料夾」
 python3 scripts/run_all.py sample_file/AllCueList.xlsx sample_file/Music sample_file/BaseStage.qxw \
     --outdir sample_file
@@ -80,7 +83,8 @@ sample_file/AllCueList.xlsx
 `app/qlcplus_gui.py` 是 `scripts/run_all.py` 的圖形介面——把總表 `.xlsx` 拖進視窗，
 按「執行轉換」就跑完拆表 → 展開黑燈 cue → 轉 `.qxw` → 改音檔路徑四個步驟，
 過程訊息直接顯示在視窗下方
-（可以選取、右鍵複製，或按「複製訊息」整份複製）。
+（可以選取、右鍵複製，或按「複製訊息」整份複製、「清除訊息」清空；
+錯誤紅字、提醒黃字、成功綠字）。
 
 ```bash
 open "app/macos/dist/QLCplus轉檔工具.app"   # 打包好的 macOS 執行檔，雙擊也可以
@@ -101,14 +105,16 @@ app/macos/build_app.sh                      # 改完程式重新打包
 細節見 [`app/windows/README.md`](app/windows/README.md)。
 
 * Music 資料夾會自動帶入 `.xlsx` 旁邊的 `Music/`，也可以自己拖或按「瀏覽…」改。
-* 底稿 `.qxw` 可留空；填了就會被複製進專案資料夾當 merge 底稿。
-* 輸出固定放在 `.xlsx` 所在的資料夾：`<檔名>.qxw`（中繼檔在 `temp_<檔名>/`）。
+* 底稿 `.qxw` **必填**，會自動帶入 `.xlsx` 旁邊的 `BaseStage.qxw`；
+  它會被複製進專案資料夾當 merge 底稿，燈具設定也是從它讀出來的。
+* 輸出固定放在 `.xlsx` 所在的資料夾：`<檔名>.qxw`（中繼檔在 `temp_<檔名>/`，
+  預設轉換結束後自動刪除，可用核取方塊關掉）。
+* 轉換後會檢查 QLC+ 使用者燈具庫有沒有底稿用到的燈具檔，缺了會顯示提示，
+  按一下就自動把 `.qxf` 複製過去。
 * 打包腳本第一次執行會自動建立虛擬環境（macOS 用 `.venv`、Windows 用 `.venv-win`）
   並安裝 openpyxl、pyinstaller、tkinterdnd2。
-* 打包好的 `.app` 沒有經過 Apple 公證，第一次開啟會被 Gatekeeper 擋下，
-  請到「系統設定 → 隱私權與安全性」按「仍要打開」。
-  若看到的是「**已損毀，無法打開**」，那是簽章封印壞掉（只會發生在下載過的檔案），
-  見 [`app/macos/README.md`](app/macos/README.md#常見問題)。
+* 打包好的 `.app` 沒有簽章，第一次開啟若被 Gatekeeper 擋下，
+  請用右鍵 →「打開」，或到「系統設定 → 隱私權與安全性」按「仍要打開」。
 * 拖曳沒反應時可用 `QLCPLUS_GUI_SELFTEST=1 "app/macos/dist/QLCplus轉檔工具.app/Contents/MacOS/QLCplus轉檔工具"`
   確認 tkdnd 有沒有被打包進去。
 
@@ -139,16 +145,19 @@ app/macos/build_app.sh                      # 改完程式重新打包
 
 ### 常見情境
 
+底稿 `.qxw` 是必填的：來源是專案資料夾時會自動抓資料夾底下那份，
+單獨餵 `.xlsx` / `.csv` 則要用 `--base` 指定。
+
 | 想做的事 | 指令 |
 |---|---|
-| 轉一份 Excel（每張工作表一條 Sequence） | `python3 scripts/step3_cuelist_to_qxw.py 燈流.xlsx` |
-| 轉整個專案（每個子資料夾一個 Show） | `python3 scripts/step3_cuelist_to_qxw.py AllCueList` |
+| 轉一份 Excel（每張工作表一條 Sequence） | `python3 scripts/step3_cuelist_to_qxw.py 燈流.xlsx --base 底稿.qxw` |
+| 轉整個專案（每個子資料夾一個 Show） | `python3 scripts/step3_cuelist_to_qxw.py temp_AllCueList` |
 | 先確認檔案裡有什麼 | `python3 scripts/step3_cuelist_to_qxw.py 來源 --list` |
-| 只轉某一張工作表 | `python3 scripts/step3_cuelist_to_qxw.py 燈流.xlsx --sheet "XX組-表演名稱"` |
-| 併進既有的 workspace | `python3 scripts/step3_cuelist_to_qxw.py 燈流.xlsx --mode merge --base 底稿.qxw -o 新版.qxw` |
-| 只要 XML 片段，自己貼進去 | `python3 scripts/step3_cuelist_to_qxw.py 燈流.xlsx --mode snippet --stdout` |
-| 指定輸出檔名 | `python3 scripts/step3_cuelist_to_qxw.py 燈流.xlsx -o 我的.qxw` |
-| 改 QLC+ 裡的資料夾名稱 | `python3 scripts/step3_cuelist_to_qxw.py AllCueList --folder 燈流 --music-folder 音樂 --show-folder 節目` |
+| 只轉某一張工作表 | `python3 scripts/step3_cuelist_to_qxw.py 燈流.xlsx --base 底稿.qxw --sheet "XX組-表演名稱"` |
+| 指定要併進哪份 workspace | `python3 scripts/step3_cuelist_to_qxw.py 燈流.xlsx --base 底稿.qxw -o 新版.qxw` |
+| 只要 XML 片段，自己貼進去 | `python3 scripts/step3_cuelist_to_qxw.py 燈流.xlsx --base 底稿.qxw --mode snippet --stdout` |
+| 指定輸出檔名 | `python3 scripts/step3_cuelist_to_qxw.py 燈流.xlsx --base 底稿.qxw -o 我的.qxw` |
+| 改 QLC+ 裡的資料夾名稱 | `python3 scripts/step3_cuelist_to_qxw.py temp_AllCueList --folder 燈流 --music-folder 音樂 --show-folder 節目` |
 
 ---
 
@@ -160,7 +169,7 @@ app/macos/build_app.sh                      # 改完程式重新打包
 
 ```
 我的專案/
-├── BaseStage.qxw                   ← 底稿（可有可無），會自動併進去
+├── BaseStage.qxw                   ← 底稿（必要），會自動併進去
 ├── XX組-表演名稱/
 │   ├── 1_raw.xlsx          ← 轉成 Sequence
 │   └── XX組-表演名稱.mp3    ← 配樂
@@ -177,28 +186,28 @@ app/macos/build_app.sh                      # 改完程式重新打包
 
 ```bash
 python3 scripts/step3_cuelist_to_qxw.py 我的專案          # 產生 我的專案.qxw
-python3 scripts/step3_cuelist_to_qxw.py 我的專案 --list   # 先看掃到哪些檔案
+python3 scripts/step3_cuelist_to_qxw.py 我的專案 --list   # 先看掃到哪些檔案（不需要底稿）
 ```
 
 ```
 $ python3 scripts/step3_cuelist_to_qxw.py sample_file/temp_AllCueList --list
 sample_file/temp_AllCueList
-  ▸ 哲哲-測試用/
+  ▸ XX組-表演名稱/
       表格 1_raw.xlsx
       表格 2_forqxw.xlsx
-  ▸ 小黃組-汪汪隊立大功/
+  ▸ YY組-表演名稱/
       表格 1_raw.xlsx
       表格 2_forqxw.xlsx
-      配樂 小黃組-汪汪隊立大功.mp3
+      配樂 YY組-表演名稱.mp3
   ...
 ```
 
-產生的 `.qxw` 會長這樣（以範例總表為例）：
+產生的 `.qxw` 在 QLC+ 的函式樹裡會長這樣（每組一個 Show、一首配樂、兩條 Sequence）：
 
 ```
-Music/            6 個 Audio：小黃組-汪汪隊立大功.mp3、柏瑋組-無論何時何處.mp3…
-Sequence_Cuelist/ 14 條 Sequence：哲哲-測試用60RC、哲哲-測試用ER554…
-Show/             7 個 Show：哲哲-測試用、小黃組-汪汪隊立大功…
+Music/            每組一個 Audio：XX組-表演名稱.mp3、YY組-表演名稱.mp3…
+Sequence_Cuelist/ 每組兩條 Sequence：XX組-表演名稱60RC、XX組-表演名稱ER554…
+Show/             每組一個 Show：XX組-表演名稱、YY組-表演名稱…
 ```
 
 每個 Show 以**子資料夾名稱**命名，裡面每條軌都從 **StartTime=0** 開始，
@@ -221,6 +230,8 @@ Show/             7 個 Show：哲哲-測試用、小黃組-汪汪隊立大功�
 
 * **配樂長度**由程式自行解析 mp3 frame header 算出（支援 CBR 與 Xing/Info/VBRI 的 VBR），
   不需要 ffmpeg 或任何套件。
+* **Show 軌道上的配樂會往後多留 5 秒**（開始時間仍是 0），免得最後一拍卡在 Show 結尾被切掉；
+  Audio 函式本身記錄的長度仍是實際歌長。
 * **配樂路徑**只要音檔在輸出 `.qxw` 的資料夾底下就寫相對路徑，
   整個專案搬家後仍然播得出來；否則退回絕對路徑。
 * 子資料夾裡有多張表就產生多條 Sequence，名稱前面會冠上子資料夾名以免撞名。
@@ -230,8 +241,8 @@ Show/             7 個 Show：哲哲-測試用、小黃組-汪汪隊立大功�
 
 ### 自動合併底稿
 
-專案資料夾底下若放了一個 `.qxw`（例如 `BaseStage.qxw`），
-**會自動把產生的內容併進去**，燈具設定、既有函式、虛擬控制台都原封不動保留：
+專案資料夾底下放的那份 `.qxw`（例如 `BaseStage.qxw`）就是底稿，
+**產生的內容會自動併進去**，燈具設定、既有函式、虛擬控制台都原封不動保留：
 
 ```bash
 $ python3 scripts/step3_cuelist_to_qxw.py 我的專案
@@ -242,13 +253,14 @@ $ python3 scripts/step3_cuelist_to_qxw.py 我的專案
 ```
 
 * **底稿不會被覆寫**，輸出是另一個檔（預設 `<資料夾名>.qxw`）。
-* 底下**沒有 `.qxw` 就略過合併**，改產生自帶燈具定義的獨立 workspace。
+* 底下**沒有 `.qxw` 就中止**並提示要指定底稿——燈具設定沒有別的來源。
 * 有多個 `.qxw` 時採用檔名排序第一個並提示；自動存檔（`*.autosave.qxw`）與輸出檔本身會被排除。
-* 想強制不合併就加 `--mode workspace`，想指定別的底稿就用 `--base`。
-* 合併前會檢查底稿有沒有這些 Sequence 用到的燈具，缺了會警告：
+  （第 1 步每次都會先清空 `temp_<檔名>/`，所以不會撿到上一次留下的舊底稿。）
+* 想指定別的底稿就用 `--base`，它的優先度高於資料夾裡那份。
+* 表格寫到、但底稿裡沒有的燈具會被忽略，並在最後列出是哪幾盞：
 
   ```
-  ⚠ 底稿 stripped.qxw 沒有這些燈具，合併後這些通道不會生效: ER-554 [2](ID 8), ER-554 [1](ID 9)
+  ⚠ 這些燈具不在 BaseStage.qxw 裡，相關欄位已忽略: 60RC[4]、60RC[5]、ER-554[1]
   ```
 
 ## 表格格式
@@ -270,8 +282,8 @@ $ python3 scripts/step3_cuelist_to_qxw.py 我的專案
 ### 多張表 = 多條 Sequence
 
 **Excel（推薦）**：每張工作表都會被讀進來，工作表裡有幾個自動化表格就產生幾條 Sequence。
-以 `sample_file/AllCueList.xlsx` 為例，每張工作表都有 60RC 與 ER554 兩個表格垂直排列，
-7 張有資料的工作表就會產生 14 條 Sequence。
+以 `sample_file/AllCueList.xlsx` 為例，每張燈流工作表都有 60RC 與 ER554 兩個表格垂直排列，
+所以 N 張有資料的工作表會產生 2N 條 Sequence。
 
 ```bash
 $ python3 scripts/step3_cuelist_to_qxw.py sample_file/AllCueList.xlsx --list
@@ -299,7 +311,7 @@ sample_file/AllCueList.xlsx
 2,4470,0,0,255,...
 
 自動化表格 ER554舞台燈參數
-#,Duration(ms),Fade In(ms),Fade Out(ms),ER-554[0] Total dimming,...
+#,Duration(ms),Fade In(ms),Fade Out(ms),ER-554[1] Total dimming,...
 1,19030,0,0,255,...
 ```
 
@@ -317,7 +329,7 @@ sample_file/AllCueList.xlsx
   所以上一張表的最後一列資料不會被誤認成標題。
 * 名稱重複時會自動補 `_2`、`_3`，避免 QLC+ 裡出現兩條同名 Sequence。
 * 也可以**一次傳多個檔**（`.xlsx` 與 `.csv` 可混用），全部併進同一份輸出：
-  `python3 scripts/step3_cuelist_to_qxw.py a.xlsx b.csv -o 全部.qxw`
+  `python3 scripts/step3_cuelist_to_qxw.py a.xlsx b.csv --base 底稿.qxw -o 全部.qxw`
 * `--sheet` 可以只挑特定工作表，重複指定就是多選。
 * 每張表可以用不同的燈具，`workspace` 模式會自動取燈具聯集，同一盞只宣告一次。
 * 沒有任何有效 Step 的表會被跳過並印出警告。
@@ -333,7 +345,7 @@ sample_file/AllCueList.xlsx
 | `Fade in(ms)` / `淡入` | `Step FadeIn` | 省略視為 0 |
 | `Hold(ms)` / `Duration(ms)` / `時間` | `Step Hold` | 該步停留幾毫秒 |
 | `Fade out(ms)` / `淡出` | `Step FadeOut` | 省略視為 0 |
-| `Note` / `備註` | — | 僅供閱讀 |
+| `Note` / `備註` | `Step Note` | 內容會照抄到 QLC+ 步驟編輯器的 Note 欄；空白就不寫 |
 
 燈流表上實際用的是 **`Fades to black(ms)`**（這個 cue 結束後花多久暗下來），
 QLC+ 沒有這個概念，所以由 [第 2 步](scripts/README.md#為什麼要有第-2-步) 先把它
@@ -342,7 +354,7 @@ QLC+ 沒有這個概念，所以由 [第 2 步](scripts/README.md#為什麼要�
 
 ### 燈具通道欄位
 
-格式為 **`<型號>[<索引>] <通道>`**，例如 `LSPA60RC[1-6] Red`、`ER-554[0] White`。
+格式為 **`<型號>[<索引>] <通道>`**，例如 `LSPA60RC[1-6] Red`、`ER-554[1] White`。
 
 **索引**寫法：
 
@@ -375,7 +387,16 @@ QLC+ 沒有這個概念，所以由 [第 2 步](scripts/README.md#為什麼要�
 
 ## 燈具對應表
 
-對應 `舞台燈同步音樂播放_預先建立顏色與模式版本.qxw` 的實際配置。
+**燈具清單不寫在程式裡，一律從輸入的底稿 .qxw 讀出來。** 第 3 步會解析底稿裡的
+每個 `<Fixture>`，取得 fixture ID、DMX 位址、模式與通道長度，通道名稱再從對應的
+`.qxf` 燈具定義檔補上（搜尋順序：底稿旁的 `Fixtures/`、底稿所在資料夾、來源 .xlsx／
+專案資料夾旁的 `Fixtures/`、上一層的 `Fixtures/`、QLC+ 使用者資料夾、QLC+ 內建燈具庫；
+內建庫是照廠牌分子資料夾放的，會多找一層）。實際用到哪個 `.qxf` 會印在 log。表頭索引就是底稿裡燈具名稱
+結尾的 `[n]`，沒寫的話按 DMX 位址從 1 排。分析結果會印在 log 裡。
+
+表頭寫到、但底稿裡沒有的燈具會被忽略，並在 log 列出是哪幾盞；沒有指定底稿則會直接中止。
+
+以下是 `sample_file/BaseStage.qxw` 的實際配置，換一份底稿就會跟著換。
 
 ### LSPA 60RC（染色燈，7 通道）
 
@@ -394,8 +415,8 @@ QLC+ 沒有這個概念，所以由 [第 2 步](scripts/README.md#為什麼要�
 
 | 表頭索引 | 位置 | Fixture ID | DMX Address |
 |---|---|---|---|
-| `ER-554[0]` | **左**台面燈 | 9 | 48 |
-| `ER-554[1]` | **右**台面燈 | 8 | 56 |
+| `ER-554[1]` | **左**台面燈 | 9 | 48 |
+| `ER-554[2]` | **右**台面燈 | 8 | 56 |
 
 通道：`0` Total dimming、`1` Red、`2` Green、`3` Blue、`4` **White**、`5` Stroboscopic、`6` Function、`7` Speed
 
@@ -403,46 +424,48 @@ QLC+ 沒有這個概念，所以由 [第 2 步](scripts/README.md#為什麼要�
 > （ID 9 顯示為「ER-554 [1]」、ID 8 顯示為「ER-554 [2]」），
 > 而 `FixtureGroup` 的排列順序也與此相反，兩者都不能當作依據。
 > 這個對應是拿 `Sequence達達團_面光燈2`（ID 37）的實際數值驗證出來的：
-> 該 Sequence 第 3 步 fixture ID 8 的 dimming 是 63，對應表格裡的 `ER-554[1]`。
-> 若實際接線相反，修改 `step3_cuelist_to_qxw.py` 中 `PROFILES` 裡 ER554 的 `heads` 兩行即可。
+> 該 Sequence 第 3 步 fixture ID 8 的 dimming 是 63，對應表格裡的 `ER-554[2]`。
+> 若實際接線相反，在 QLC+ 裡把兩盞燈的名稱 `ER-554 [1]` / `ER-554 [2]` 對調再存檔即可，
+> 不必改程式。
 
 ---
 
 ## 輸出模式
 
-`--mode` 預設會自動判斷：專案資料夾底下有 `.qxw` 就用 `merge`，否則用 `workspace`。
+`--mode` 預設是 `merge`。三種模式**都需要底稿 `.qxw`**，因為燈具設定只有它有。
 
-### `--mode workspace`
+### `--mode merge`（預設）
 
-產生一份獨立、可直接用 QLC+ 開啟的 `.qxw`，內含 Fixture 定義，以及每張表各自的隱藏 BoundScene 與 Sequence。
-專案模式下還會包含 Audio 與 Show。適合快速預覽或單獨測試一段燈流。
+把 Audio、BoundScene、Sequence、Show 插進底稿 workspace 的 `</Engine>` 之前，
+並自動配發沒被占用的新 Function ID（連號）。**原檔其餘內容逐字元保留不動**。
 
 ```bash
-python3 scripts/step3_cuelist_to_qxw.py sample_file/AllCueList.xlsx -o 我的.qxw
+python3 scripts/step3_cuelist_to_qxw.py sample_file/AllCueList.xlsx \
+    --base sample_file/BaseStage.qxw \
+    -o 新版.qxw
 ```
+
+> merge 不會覆寫 `--base`，請用 `-o` 指定輸出檔。
 
 ### `--mode snippet`
 
 只輸出 `<Function Type="Sequence">` 區塊，方便手動貼進既有檔案。
 
 ```bash
-python3 scripts/step3_cuelist_to_qxw.py sample_file/AllCueList.xlsx --mode snippet --stdout
+python3 scripts/step3_cuelist_to_qxw.py sample_file/AllCueList.xlsx \
+    --base sample_file/BaseStage.qxw --mode snippet --stdout
 ```
 
-### `--mode merge`
+### `--mode workspace`
 
-把 Audio、BoundScene、Sequence、Show 插進既有 workspace 的 `</Engine>` 之前，
-並自動配發沒被占用的新 Function ID（連號）。**原檔其餘內容逐字元保留不動**。
-專案資料夾底下有 `.qxw` 時會自動採用這個模式。
+產生一份獨立、可直接用 QLC+ 開啟的 `.qxw`：依底稿讀到的燈具重新寫一份 Fixture 定義，
+加上每張表各自的隱藏 BoundScene 與 Sequence；專案模式下還會包含 Audio 與 Show。
+只會宣告表格實際用到的燈具，適合快速預覽或單獨測試一段燈流。
 
 ```bash
 python3 scripts/step3_cuelist_to_qxw.py sample_file/AllCueList.xlsx \
-    --mode merge \
-    --base sample_file/BaseStage.qxw \
-    -o 新版.qxw
+    --base sample_file/BaseStage.qxw --mode workspace -o 我的.qxw
 ```
-
-> merge 不會覆寫 `--base`，請用 `-o` 指定輸出檔。
 
 ---
 
@@ -467,8 +490,8 @@ usage: step3_cuelist_to_qxw.py [-h] [--sheet SHEET] [--list] [-o OUT]
 | `--sheet` | 全部 | 只轉換指定的 Excel 工作表；可重複指定 |
 | `--list` | 關 | 只列出有哪些工作表與表格，不做轉換 |
 | `-o`, `--out` | 沿用第一個來源檔名 | 輸出檔路徑 |
-| `--mode` | 自動 | `workspace` / `snippet` / `merge`；預設專案底下有 `.qxw` 就 merge |
-| `--base` | 專案底下的 `.qxw` | merge 要插入的既有 `.qxw` |
+| `--mode` | `merge` | `merge` / `snippet` / `workspace` |
+| `--base` | 專案底下的 `.qxw` | **必填**：要合併的既有 `.qxw`，燈具設定就是從這裡讀 |
 | `--name` | 工作表名稱 | 直接指定 Sequence 名稱；可重複指定，依序對應每張表 |
 | `--name-from` | `sheet` | Sequence 名稱來源：`sheet`=工作表名稱、`title`=表格標題 |
 | `--folder` | `Sequence_Cuelist` | 把 Sequence 收進這個資料夾；給空字串則不分資料夾 |
@@ -495,8 +518,8 @@ QLC+ 的資料夾就是 `<Function>` 上的 `Path` 屬性（參考檔裡的 `Pat
 巢狀資料夾用 `/` 分隔，例如 `--folder "燈流/2026迎新"`。
 
 ```bash
-python3 scripts/step3_cuelist_to_qxw.py --folder "我的燈流"    # 改資料夾名稱
-python3 scripts/step3_cuelist_to_qxw.py --folder ""           # 不分資料夾
+python3 scripts/step3_cuelist_to_qxw.py 我的專案 --folder "我的燈流"    # 改資料夾名稱
+python3 scripts/step3_cuelist_to_qxw.py 我的專案 --folder ""           # 不分資料夾
 ```
 
 > 每條 Sequence 附帶的 BoundScene 是**隱藏函式**，不會出現在函式樹裡，
@@ -518,6 +541,10 @@ QLC+ 只記錄有作用的通道。例如 `dimming=255, R=0, G=0, B=0` 會寫成
 ```
 
 而不是把 `1,0,2,0,3,0` 也寫出來。加上 `--keep-zeros` 可保留完整通道。
+
+**例外是整列都填 0 的黑燈 cue**：照上面的規則會變成一個沒有任何通道的空 Step，
+QLC+ 會維持上一步的畫面而不是暗場，所以這種列會把表格宣告到的通道全部明確寫成 0。
+第 2 步補出來的黑燈 cue 就是靠這個規則生效的。
 
 ### `Values` 屬性是總通道數
 
@@ -544,16 +571,17 @@ QLC+ 只記錄有作用的通道。例如 `dimming=255, R=0, G=0, B=0` 會寫成
 | 檔案 | 說明 |
 |---|---|
 | `scripts/step3_cuelist_to_qxw.py` | 主要工具：Excel / CSV / 專案資料夾 → QLC+ `.qxw` |
-| `scripts/run_all.py` | 一次跑完拆表 → 轉檔 → 改音檔路徑 |
-| `scripts/step1_split_cuelist_xlsx.py` | 第 1 步：把總表拆成每張工作表的 cuelist |
+| `scripts/run_all.py` | 一次跑完拆表 → 展開黑燈 cue → 轉檔 → 改音檔路徑 |
+| `scripts/step1_split_cuelist_xlsx.py` | 第 1 步：把總表拆成每張工作表的 cuelist，並複製 mp3 與底稿 |
+| `scripts/step2_fades_to_black.py` | 第 2 步：把 `Fades to black(ms)` 展開成黑燈 cue |
 | `scripts/step4_retarget_qxw_music.py` | 第 4 步：把 `.qxw` 裡的音檔路徑改回 `Music/` |
 | `app/qlcplus_gui.py` | 上面那條流程的拖曳介面（macOS / Windows 共用） |
 | `app/macos/build_app.sh` | 打包成 `app/macos/dist/QLCplus轉檔工具.app` |
 | `app/windows/build_exe.bat` | 在 Windows 上打包成 `app\windows\dist\QLCplus_Converter.exe` |
-| `sample_file/AllCueList.xlsx` | 範例總表：10 張工作表，第 4 張起共 7 張有燈流資料 |
+| `sample_file/AllCueList.xlsx` | 範例總表：前 3 張是說明／下拉選單／空白模板，第 4 張起放各組燈流 |
 | `sample_file/BaseStage.qxw` | 範例底稿：燈具與虛擬控制台都設定好，供 merge 用 |
 | `sample_file/Music/` | 配樂，檔名要與工作表名稱相同才會被自動配對 |
-| `sample_file/Fixtures/` | 兩支燈的 QLC+ 燈具定義（`LSPA-60RC.qxf`、`GuangzhouEnran_ER-554.qxf`） |
+| `sample_file/Fixtures/` | 兩支燈的 QLC+ 燈具定義（`LSPA-60RC.qxf`、`GuangzhouEnran_ER-554.qxf`），第 3 步靠它取得通道名稱 |
 
 > 文件中提到的 `舞台燈同步音樂播放_預先建立顏色與模式版本.qxw`、`表演燈流.xlsx`、
 > `cuelist_transform.xlsx/.csv` 是當初推導轉換規則時比對用的檔案，**沒有收在 repo 裡**，
@@ -563,12 +591,22 @@ QLC+ 只記錄有作用的通道。例如 `dimming=255, R=0, G=0, B=0` 會寫成
 
 ## 疑難排解
 
-**「表頭裡找不到任何燈具通道欄位」**
-表頭沒有符合 `<型號>[<索引>] <通道>` 的欄位。請確認型號拼法為 `LSPA60RC` 或 `ER-554`，
-且通道名稱在上面的對照表內。
+**「⚠ 略過 XXX：表頭裡的燈具都不在底稿裡」**
+表頭的型號拼法對不上底稿裡的燈具，或索引超出底稿實際有的台數。
+型號可以寫底稿裡的型號、廠牌+型號，或燈具名稱去掉 `[n]` 的部分；
+索引就是燈具名稱結尾的 `[n]`。執行時 log 會先列出底稿讀到哪些燈具與索引，對照著改即可。
 
-**「60RC 沒有索引 [7, 8, 9]」**
-索引超出範圍。60RC 是 `1`–`6`，ER-554 是 `0`–`1`。
+**「⚠ 這些燈具不在 XXX.qxw 裡，相關欄位已忽略」**
+同上，只是同一張表裡還有別的燈具能轉，所以只略過那幾欄。
+
+**「沒有指定要合併的 .qxw」**
+第 3 步一定要底稿。把 `.qxw` 放進專案資料夾底下（`run_all.py`／拖曳介面的第三個參數），
+或用 `--base` 直接指定。
+
+**QLC+ 開檔說找不到燈具**
+底稿用到的 `.qxf` 不在 QLC+ 的使用者燈具庫裡。拖曳介面轉換後會自動檢查並提供一鍵複製；
+手動的話就把 `.qxf` 複製到 `~/Library/Application Support/QLC+/Fixtures/`（macOS）或
+`%USERPROFILE%\QLC+\Fixtures\`（Windows）。
 
 **Excel 轉出來少了一張表的資料**
 多半是先用 Excel 另存成 CSV 才轉——CSV 只裝得下一張工作表。請直接餵 `.xlsx`，

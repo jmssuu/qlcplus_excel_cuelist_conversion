@@ -11,6 +11,10 @@ app/macos/build_app.sh
 第一次執行會在專案根目錄建立 `.venv` 並安裝 openpyxl、pyinstaller、tkinterdnd2，
 之後每次約一分半。
 
+打包過程還會用 PlistBuddy 改 `Info.plist`：加上拖曳 `.xlsx` 的檔案類型，
+以及 `NSDocumentsFolderUsageDescription` 等四個隱私權說明字串
+（沒有它們 macOS 不會跳出授權視窗，見下面的常見問題），改完會重新簽章。
+
 ## 產出
 
 ```
@@ -61,8 +65,26 @@ syspolicy_check distribution "dist/QLCplus轉檔工具.app"
 只列出 `Adhoc Signed App` 與 `Notary Ticket Missing` 是正常的（未公證的必然結果）；
 若出現 `Invalid Info.plist (plist or signature have been modified)` 就是封印壞了，重簽即可。
 
+**訊息裡出現「沒有權限讀取資料夾」**
+macOS 的隱私權限（TCC）預設不讓 App 列出「文件 / 桌面 / 下載 / iCloud 雲碟」裡的內容。
+拖進來的那個 `.xlsx` 讀得到（拖曳／選檔等於使用者授權了那一個檔），
+但同一層的 `Music/` 一列出內容就會被擋下：
+
+```
+沒有權限讀取資料夾：…/sample_file/Music
+macOS 預設會擋下應用程式列出「文件 / 桌面 / 下載 / iCloud 雲碟」裡的內容。
+請到「系統設定 → 隱私權與安全性 → 檔案與資料夾」（或「完全取用磁碟」）
+把本程式打開，然後重新執行；或把資料改放到不受保護的位置。
+```
+
+到 **「系統設定 → 隱私權與安全性 → 檔案與資料夾」** 把這個 App 的「文件檔案夾」打開即可
+（清單裡沒有它就改用「完全取用磁碟」，把 `.app` 拖進去）。
+`build_app.sh` 已經在 `Info.plist` 裡加上 `NSDocumentsFolderUsageDescription` 等四個說明字串
+——少了這些 key，macOS 會直接回 EPERM，連授權視窗都不會跳出來。
+按下「執行轉換」前介面也會先試著列一次 Music 資料夾，被擋下就跳視窗說明，不會做到一半才失敗。
+
 **訊息裡出現 `PermissionError: Operation not permitted`**
-macOS 的檔案權限（TCC）擋住了 App 覆寫**別的程式建立**的舊檔——最常見的情況是
+同樣是 TCC，但這次擋的是 App 覆寫**別的程式建立**的舊檔——最常見的情況是
 上次用終端機跑過一次，產物留在 `~/Documents` 底下，App 就改不動它了。
 
 轉檔程式會自己處理：覆寫失敗時先把舊檔刪掉再重寫，多數情況會自動過關。

@@ -11,14 +11,16 @@
     ./build_app.sh
 
 視窗上半部是拖曳區，把總表 .xlsx 拖進去就會顯示完整路徑；
-Music 資料夾預設抓 .xlsx 旁邊的 ``Music/``，底稿 .qxw 可留空。
+Music 資料夾預設抓 .xlsx 旁邊的 ``Music/``，底稿 .qxw 預設抓旁邊的 ``BaseStage.qxw``。
 按「執行轉換」後會在下方的訊息區即時顯示 run_all 的輸出。
 """
 
 from __future__ import annotations
 
 import os
+import json
 import queue
+import shutil
 import sys
 import threading
 import traceback
@@ -31,6 +33,7 @@ from tkinter import filedialog, messagebox, ttk
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 
 import run_all
+import step3_cuelist_to_qxw as step3
 
 try:  # 有裝 tkinterdnd2 才有真正的拖曳；沒有就退回「瀏覽…」按鈕
     from tkinterdnd2 import DND_FILES, TkinterDnD
@@ -40,7 +43,8 @@ except Exception:  # pragma: no cover - 只在缺套件時走到
     TkinterDnD = None
     HAS_DND = False
 
-APP_TITLE = "QLC+ 轉檔工具"
+APP_TITLE = "QLC+ 轉檔工具(.xlsx燈表轉換成.qxw專案檔)"
+BASE_QXW_NAME = "BaseStage.qxw"      # 拖進 .xlsx 時預設抓同資料夾的這一份
 SHEET_SUFFIXES = (".xlsx", ".xlsm")
 
 # Windows 沒有 Helvetica / Menlo，硬指定會退回醜醜的預設字體
@@ -58,6 +62,58 @@ ACCENT = "#2d6cdf"
 MUTED = "#6b6f76"
 OK = "#1a7f37"
 ERR = "#c0392b"
+# log 上色：只有真的出錯／衝突才用紅字，提醒類用黃字，成功用綠字
+# 一定是錯誤，就算掛著提醒記號也一樣（例如「⚠ 轉換失敗 …」）
+ERROR_MARKERS = ("Traceback", "[失敗]", "error:", "Error", "失敗", "錯誤", "衝突")
+# 只有在沒有提醒記號時才算錯誤（「[提醒] … 裡找不到 …」只是提醒）
+SOFT_ERROR_MARKERS = ("沒有權限", "無法", "找不到", "中止")
+WARN_MARKERS = ("⚠", "[提醒]", "[跳過]", "警告", "warning", "Warning")
+OK_MARKERS = ("[OK]", "✓", "★", "已輸出", "已更新", "已備份", "已加入",
+              "完成", "成功")
+
+
+def log_tag(line: str):
+    """依內容決定這一行的顏色；認不出來就用預設的黑字。"""
+    text = line.strip()
+    if not text:
+        return None
+    if any(mark in text for mark in ERROR_MARKERS):
+        return "err"
+    if any(mark in text for mark in WARN_MARKERS):
+        return "warn"
+    if any(mark in text for mark in SOFT_ERROR_MARKERS):
+        return "err"
+    if any(mark in text for mark in OK_MARKERS):
+        return "ok"
+    return None
+
+
+HELP_SHOW = "點我展開使用說明"
+HELP_HIDE = "收合使用說明"
+HELP_BG = "#eef2f8"
+HELP_BORDER = "#c9d4e4"
+HELP_FG = "#3d4450"
+HELP_WRAP = 560           # 內容欄的換行寬度，換行會吊掛在編號右邊
+
+# (標題, 前言, [(項目記號, 項目內容), …])
+HELP_SECTIONS = (
+    ("使用說明", "燈表 .xlsx 所在的資料夾裡，請先備妥這三樣", (
+        ("1.", "Music/：音樂檔名要和燈表裡的工作表名稱一模一樣"
+               "（工作表「XX組-表演名稱」→ XX組-表演名稱.mp3）"),
+        ("2.", "Fixtures/：這場用到的燈具檔 .qxf。"
+               "QLC+ 使用者燈具庫裡已經有這些燈具的話，就不需要這個資料夾"),
+        ("3.", "底稿 .qxw（例如 BaseStage.qxw）：已經設好燈具數量、DMX 位址"
+               "與舞台配置的檔案。放在別的路徑也可以，用下面的欄位拖曳或"
+               "「瀏覽…」指定即可"),
+    )),
+    ("產出檔案", "", (
+        ("→", "轉換後會在同一個資料夾產生「燈表名稱.qxw」。用 QLC+ 開啟後，"
+              "到 Function Manager 的 Show 資料夾裡，就能找到正式表演要用的 Show"),
+    )),
+)
+
+WARN_BG = "#fff4d6"
+WARN_FG = "#8a5b00"
 
 
 class QueueWriter:
@@ -85,13 +141,18 @@ class App:
         self.source: Path | None = None
         self.music_var = tk.StringVar()
         self.base_var = tk.StringVar()
+        self.cleanup_var = tk.BooleanVar(value=True)
+        self._auto_filled = {}      # 欄位 -> 上次自動帶入的值
+        self._fixture_todo = []     # 待複製到 QLC+ 使用者燈具庫的 .qxf
+        self._fixture_dest = None
+        self._log_pending = ""      # log_stream 還沒湊成整行的殘句
         self.log_queue: "queue.Queue[tuple[str, str]]" = queue.Queue()
         self.running = False
 
         root.title(APP_TITLE)
         root.configure(bg=BG)
-        root.minsize(640, 560)
-        root.geometry("720x640")
+        root.minsize(640, 600)
+        root.geometry("720x720")
 
         self._build_widgets()
         self._poll_log()
@@ -118,7 +179,7 @@ class App:
         outer = ttk.Frame(self.root, padding=16)
         outer.pack(fill="both", expand=True)
         outer.columnconfigure(0, weight=1)
-        outer.rowconfigure(4, weight=1)
+        outer.rowconfigure(7, weight=1)
 
         # --- 拖曳區 ---
         self.drop = tk.Label(
@@ -134,26 +195,49 @@ class App:
             padx=16,
             pady=28,
         )
-        self.drop.grid(row=0, column=0, sticky="ew")
+        self.drop.grid(row=2, column=0, sticky="ew")
         self.drop.bind("<Button-1>", lambda _e: self.browse_source())
         self._register_drop(self.drop, self._on_drop_source)
 
         ttk.Label(outer, text="（也可以直接點一下這塊區域選檔）",
-                  style="Hint.TLabel").grid(row=1, column=0, pady=(6, 12))
+                  style="Hint.TLabel").grid(row=3, column=0, pady=(6, 12))
+
+        # --- 使用說明（預設收起來，按按鈕才展開）---
+        self.help_btn = ttk.Button(outer, text=HELP_SHOW,
+                                   command=self.toggle_help)
+        self.help_btn.grid(row=0, column=0, sticky="w", pady=(0, 8))
+
+        self.help_box = tk.Frame(outer, bg=HELP_BG, highlightthickness=1,
+                                 highlightbackground=HELP_BORDER)
+        self.help_box.grid(row=1, column=0, sticky="ew", pady=(0, 12))
+        self.help_box.columnconfigure(1, weight=1)
+        self._build_help(self.help_box)
+        self.help_box.grid_remove()
 
         # --- 選項 ---
         opts = ttk.Frame(outer)
-        opts.grid(row=2, column=0, sticky="ew")
+        opts.grid(row=4, column=0, sticky="ew")
         opts.columnconfigure(1, weight=1)
 
         self._path_row(opts, 0, "Music 資料夾：", self.music_var,
                        self.browse_music, folder=True)
-        self._path_row(opts, 1, "底稿 .qxw（可留空）：", self.base_var,
+        self._path_row(opts, 1, "底稿 .qxw：", self.base_var,
                        self.browse_base, folder=False)
+
+        # 用原生的 tk.Checkbutton 而不是 ttk 版：clam 主題的勾選記號畫出來是叉。
+        # 文字顏色要自己指定：系統若是深色模式，預設的標籤色是白的，
+        # 配上這裡固定的淺色背景會看不見。
+        tk.Checkbutton(opts, text="執行轉換結束後自動刪除temp檔",
+                       variable=self.cleanup_var, background=BG,
+                       activebackground=BG, foreground="#22252a",
+                       activeforeground="#22252a", highlightthickness=0,
+                       borderwidth=0, anchor="w",
+                       font=(UI_FONT, 12)).grid(
+            row=2, column=1, sticky="w", padx=6, pady=(6, 0))
 
         # --- 執行 ---
         bar = ttk.Frame(outer)
-        bar.grid(row=3, column=0, sticky="ew", pady=(14, 8))
+        bar.grid(row=5, column=0, sticky="ew", pady=(14, 8))
         bar.columnconfigure(1, weight=1)
 
         self.run_btn = ttk.Button(bar, text="執行轉換", style="Run.TButton",
@@ -167,9 +251,29 @@ class App:
         ttk.Button(bar, text="複製訊息",
                    command=self.copy_all_log).grid(row=0, column=2, sticky="e")
 
+        ttk.Button(bar, text="清除訊息",
+                   command=self.clear_log).grid(row=0, column=3, sticky="e",
+                                                padx=(6, 0))
+
+        # --- 燈具庫警告列（平常收起來，缺燈具檔時才出現）---
+        self.fixture_bar = tk.Frame(outer, bg=WARN_BG, highlightthickness=1,
+                                    highlightbackground=WARN_FG)
+        self.fixture_bar.grid(row=6, column=0, sticky="ew", pady=(0, 8))
+        self.fixture_bar.columnconfigure(0, weight=1)
+        self.fixture_bar.grid_remove()
+
+        self.fixture_msg = tk.Label(self.fixture_bar, text="", bg=WARN_BG,
+                                    fg=WARN_FG, font=(UI_FONT, 12),
+                                    anchor="w", justify="left")
+        self.fixture_msg.grid(row=0, column=0, sticky="ew", padx=10, pady=8)
+
+        self.fixture_btn = ttk.Button(self.fixture_bar, text="是否要幫你加入燈具檔？",
+                                      command=self.install_fixtures)
+        self.fixture_btn.grid(row=0, column=1, sticky="e", padx=10, pady=8)
+
         # --- 訊息區 ---
         logbox = ttk.Frame(outer)
-        logbox.grid(row=4, column=0, sticky="nsew")
+        logbox.grid(row=7, column=0, sticky="nsew")
         logbox.columnconfigure(0, weight=1)
         logbox.rowconfigure(0, weight=1)
 
@@ -191,6 +295,8 @@ class App:
         bar_y.grid(row=0, column=1, sticky="ns")
         self.log.configure(yscrollcommand=bar_y.set)
         self.log.tag_configure("err", foreground=ERR)
+        self.log.tag_configure("warn", foreground=WARN_FG)
+        self.log.tag_configure("ok", foreground=OK)
         self.log.tag_configure("info", foreground=ACCENT)
 
     # 這些鍵不會改內容，放行（方向鍵配 Shift 就能用鍵盤選取）
@@ -233,6 +339,44 @@ class App:
         self.root.clipboard_clear()
         self.root.clipboard_append(text)
 
+    def _build_help(self, box):
+        """把說明排成「記號｜內容」兩欄，內容換行時會吊掛對齊，不會跑回最左邊。"""
+        def line(row, text, *, column, columnspan=1, bold=False, pad_top=0):
+            tk.Label(box, text=text, bg=HELP_BG, fg=HELP_FG,
+                     font=(UI_FONT, 11, "bold") if bold else (UI_FONT, 11),
+                     justify="left", anchor="nw",
+                     wraplength=HELP_WRAP if column else 0).grid(
+                row=row, column=column, columnspan=columnspan, sticky="nw",
+                padx=(12 if column == 0 else 0, 12 if column else 0),
+                pady=(pad_top, 2))
+
+        row = 0
+        for title, intro, items in HELP_SECTIONS:
+            line(row, f"{title}：{intro}" if intro else f"{title}：",
+                 column=0, columnspan=2, bold=True, pad_top=10)
+            row += 1
+            for mark, text in items:
+                line(row, f"　{mark}", column=0)
+                line(row, text, column=1)
+                row += 1
+        # 最後一列補一點底部留白
+        tk.Frame(box, bg=HELP_BG, height=8).grid(row=row, column=0, columnspan=2)
+
+    def toggle_help(self):
+        """展開／收合使用說明。"""
+        if self.help_box.winfo_manager():
+            self.help_box.grid_remove()
+            self.help_btn.configure(text=HELP_SHOW)
+        else:
+            self.help_box.grid()
+            self.help_btn.configure(text=HELP_HIDE)
+            # 視窗不夠高就長高一點，免得說明把訊息區壓扁（收合時不主動縮回去）
+            self.root.update_idletasks()
+            need = self.root.winfo_reqheight()
+            if self.root.winfo_height() < need:
+                limit = self.root.winfo_screenheight() - 120
+                self.root.geometry(f"{self.root.winfo_width()}x{min(need, limit)}")
+
     def _path_row(self, parent, row, label, var, command, folder):
         ttk.Label(parent, text=label).grid(row=row, column=0, sticky="w",
                                           pady=4)
@@ -245,7 +389,7 @@ class App:
 
     def _drop_hint(self):
         verb = "拖曳" if HAS_DND else "選擇"
-        return f"把總表 .xlsx {verb}到這裡"
+        return f"把燈表 .xlsx {verb}到這裡"
 
     # -------------------------------------------------------------- 拖曳處理
     def _register_drop(self, widget, handler):
@@ -329,10 +473,39 @@ class App:
         self.drop.configure(text=str(path), fg="#22252a",
                             font=(UI_FONT, 13, "bold"))
         music = path.parent / "Music"
-        if music.is_dir() and not self.music_var.get():
-            self.music_var.set(str(music))
+        if music.is_dir():
+            self._autofill(self.music_var, music)
+        # 底稿 .qxw 是必要的，優先抓同資料夾的 BaseStage.qxw
+        base = self._find_base(path.parent)
+        if base is not None:
+            self._autofill(self.base_var, base)
+        elif not self.base_var.get():
+            self.log_line(f"⚠ {path.parent} 底下沒有 {BASE_QXW_NAME}，"
+                          "請自己選一份底稿 .qxw\n", "err")
         self.run_btn.configure(state="normal")
         self.set_status(f"準備轉換：{path.name}", MUTED)
+
+    def _autofill(self, var, value: Path):
+        """欄位還空著、或裡面是上次自動帶入的值，就換成這次算出來的。"""
+        current = var.get().strip()
+        if current and current != self._auto_filled.get(id(var)):
+            return
+        var.set(str(value))
+        self._auto_filled[id(var)] = str(value)
+
+    @staticmethod
+    def _find_base(folder: Path):
+        """同資料夾裡的底稿 .qxw：先找 BaseStage.qxw，沒有就找唯一的一份。"""
+        named = folder / BASE_QXW_NAME
+        if named.is_file():
+            return named
+        try:
+            found = [p for p in sorted(folder.glob("*.qxw"))
+                     if not p.name.startswith((".", "~$"))
+                     and ".autosave" not in p.name.lower()]
+        except OSError:
+            return None
+        return found[0] if len(found) == 1 else None
 
     # ---------------------------------------------------------------- 執行
     def start_run(self):
@@ -343,8 +516,20 @@ class App:
         if music and not Path(music).is_dir():
             messagebox.showerror(APP_TITLE, f"找不到 Music 資料夾：\n{music}")
             return
+        blocked = self.no_permission(Path(music) if music else self.source.parent)
+        if blocked:
+            messagebox.showerror(APP_TITLE, blocked)
+            return
         if base and not Path(base).is_file():
             messagebox.showerror(APP_TITLE, f"找不到底稿 .qxw：\n{base}")
+            return
+        if not base:
+            messagebox.showerror(
+                APP_TITLE,
+                "請指定底稿 .qxw。\n\n"
+                "燈具有幾台、DMX 位址、模式與通道長度都是從底稿讀出來的，"
+                f"少了它沒辦法轉換。\n把 {BASE_QXW_NAME} 放在總表旁邊，"
+                "或用「瀏覽…」選一份。")
             return
 
         self.running = True
@@ -357,9 +542,28 @@ class App:
             args.append(base)
         args += ["--outdir", str(self.source.parent)]
 
-        threading.Thread(target=self._worker, args=(args,), daemon=True).start()
+        temp_dir = (self.source.parent / f"temp_{self.source.stem}"
+                    if self.cleanup_var.get() else None)
+        self.hide_fixture_bar()
+        threading.Thread(target=self._worker, args=(args, temp_dir, Path(base)),
+                         daemon=True).start()
 
-    def _worker(self, args):
+    @staticmethod
+    def no_permission(folder: Path):
+        """macOS 會擋下 App 列出「文件 / 桌面 / 下載」裡的內容，先試一次給出說明。"""
+        try:
+            next(folder.iterdir(), None)
+        except PermissionError:
+            return (f"沒有權限讀取資料夾：\n{folder}\n\n"
+                    "macOS 預設會擋下 App 列出「文件 / 桌面 / 下載 / iCloud 雲碟」裡的內容。\n"
+                    "請到「系統設定 → 隱私權與安全性 → 檔案與資料夾」（或「完全取用磁碟」）"
+                    f"把 {APP_TITLE} 打開後重新執行，\n"
+                    "或把資料改放到不受保護的位置。")
+        except OSError:
+            pass
+        return None
+
+    def _worker(self, args, temp_dir=None, base=None):
         out = QueueWriter(self.log_queue, "out")
         err = QueueWriter(self.log_queue, "err")
         old_out, old_err, old_cwd = sys.stdout, sys.stderr, os.getcwd()
@@ -373,12 +577,125 @@ class App:
         except Exception:
             err.write(traceback.format_exc())
         finally:
+            if base is not None:
+                try:
+                    self.check_fixture_library(base, out)
+                except Exception:
+                    err.write(traceback.format_exc())
+            # 不論轉換成功或失敗都清掉中繼資料夾（勾選「自動刪除temp檔」時）
+            if temp_dir is not None and temp_dir.is_dir():
+                # step4 只改得動「在 Music 裡找得到」的音檔；找不到的仍指向 temp
+                # 資料夾，這時候刪掉會讓 QLC+ 開起來播不出聲音，先提醒一聲。
+                qxw = temp_dir.parent / f"{temp_dir.name[len('temp_'):]}.qxw"
+                try:
+                    stale = qxw.read_text(errors="replace").count(f"{temp_dir.name}/")
+                except OSError:
+                    stale = 0
+                if stale:
+                    err.write(f"[提醒] {qxw.name} 裡還有 {stale} 個音檔指向 "
+                              f"{temp_dir.name}/，刪掉後這些音檔會失效；"
+                              "請確認 Music 資料夾裡有同名的檔案。\n")
+                try:
+                    shutil.rmtree(temp_dir)
+                    out.write(f"[清除] 已刪除中繼資料夾 {temp_dir.name}\n")
+                except OSError as exc:
+                    err.write(f"[提醒] 刪不掉 {temp_dir}：{exc}\n")
             sys.stdout, sys.stderr = old_out, old_err
             try:
                 os.chdir(old_cwd)
             except OSError:
                 pass
             self.log_queue.put(("done", str(code)))
+
+    # ------------------------------------------------------- QLC+ 燈具庫
+    def check_fixture_library(self, base: Path, out):
+        """看 QLC+ 使用者燈具庫裡有沒有這份 .qxw 用到的燈具檔。
+
+        在工作執行緒裡跑，結果丟回 queue 讓主執行緒去改畫面。
+        """
+        dest = step3.user_fixture_dir()
+        try:
+            fixtures = step3.workspace_fixtures(base)
+        except Exception:
+            return
+        needed = {(step3.normalize(f.get("Manufacturer", "")),
+                   step3.normalize(f.get("Model", ""))):
+                  f"{f.get('Manufacturer', '')} {f.get('Model', '')}".strip()
+                  for f in fixtures}
+        if not needed:
+            return
+
+        installed = step3.collect_fixture_defs([dest])
+        missing = {key: label for key, label in needed.items()
+                   if key not in installed}
+        if not missing:
+            out.write(f"[OK] QLC+ 使用者燈具庫已有需要的燈具檔（{dest}）\n")
+            return
+
+        # 在本機其他位置（專案 Fixtures/、QLC+ 內建庫…）找得到的才有得複製
+        extra = (self.source.parent,) if self.source else ()
+        available = step3.load_fixture_defs(base, extra)
+        todo, hopeless = [], []
+        for key, label in sorted(missing.items()):
+            found = available.get(key)
+            if found is not None and found[1].parent != dest:
+                todo.append(found[1])
+            else:
+                hopeless.append(label)
+        self.log_queue.put(("fixtures", json.dumps({
+            "dest": str(dest),
+            "missing": sorted(missing.values()),
+            "todo": [str(path) for path in dict.fromkeys(todo)],
+            "hopeless": hopeless,
+        })))
+
+    def show_fixture_bar(self, info):
+        self._fixture_dest = Path(info["dest"])
+        self._fixture_todo = [Path(p) for p in info["todo"]]
+        text = ("警告：本電腦QLC+ 使用者燈具庫未放入必要燈具檔\n"
+                f"缺少：{'、'.join(info['missing'])}")
+        if info["hopeless"]:
+            text += f"\n（{'、'.join(info['hopeless'])} 在本機找不到定義檔，要自己補）"
+        self.fixture_msg.configure(text=text)
+        if self._fixture_todo:
+            self.fixture_btn.configure(text="是否要幫你加入燈具檔？", state="normal")
+            self.fixture_btn.grid()
+        else:
+            self.fixture_btn.grid_remove()
+        self.fixture_bar.grid()
+
+    def hide_fixture_bar(self):
+        self.fixture_bar.grid_remove()
+        self._fixture_todo = []
+        self._fixture_dest = None
+
+    def install_fixtures(self):
+        """把用到的 .qxf 複製進 QLC+ 使用者燈具庫。"""
+        dest, sources = self._fixture_dest, self._fixture_todo
+        if dest is None or not sources:
+            return
+        copied, failed = [], []
+        try:
+            dest.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            self.log_line(f"⚠ 建不出資料夾 {dest}：{exc}\n", "err")
+            return
+        for src in sources:
+            try:
+                shutil.copy2(src, dest / src.name)
+                copied.append(src)
+            except OSError as exc:
+                failed.append((src, exc))
+        for src in copied:
+            self.log_line(f"[OK] 已複製燈具檔 {src.name} -> {dest}\n")
+        for src, exc in failed:
+            self.log_line(f"⚠ 複製 {src.name} 失敗：{exc}\n", "err")
+        if copied:
+            self.log_line("　　QLC+ 要重新啟動才會讀到新的燈具檔。\n")
+            self.fixture_msg.configure(
+                text=f"已加入 {len(copied)} 個燈具檔到 {dest}（QLC+ 重開後生效）")
+            self.fixture_btn.grid_remove()
+            self._fixture_todo = []
 
     # ---------------------------------------------------------------- 畫面
     def _poll_log(self):
@@ -387,13 +704,16 @@ class App:
                 tag, text = self.log_queue.get_nowait()
             except queue.Empty:
                 break
-            if tag == "done":
+            if tag == "fixtures":
+                self.show_fixture_bar(json.loads(text))
+            elif tag == "done":
                 self._finish(int(text))
             else:
-                self.log_line(text, tag if tag == "err" else None)
+                self.log_stream(text)
         self.root.after(80, self._poll_log)
 
     def _finish(self, code):
+        self.flush_log_stream()
         self.running = False
         self.run_btn.configure(state="normal")
         if code == 0:
@@ -408,13 +728,30 @@ class App:
 
     def clear_log(self):
         self.log.delete("1.0", "end")
+        self._log_pending = ""
 
     def log_line(self, text, tag=None):
         # 使用者捲上去看／選字時就不要硬拉回底部
         at_bottom = self.log.yview()[1] > 0.999
-        self.log.insert("end", text, tag or ())
+        if tag is None:
+            for line in text.splitlines(keepends=True):
+                self.log.insert("end", line, log_tag(line) or ())
+        else:
+            self.log.insert("end", text, tag)
         if at_bottom:
             self.log.see("end")
+
+    def log_stream(self, text):
+        """轉檔輸出是一段一段丟過來的，湊成整行才判斷顏色。"""
+        self._log_pending += text
+        while "\n" in self._log_pending:
+            line, self._log_pending = self._log_pending.split("\n", 1)
+            self.log_line(line + "\n")
+
+    def flush_log_stream(self):
+        if self._log_pending:
+            self.log_line(self._log_pending)
+            self._log_pending = ""
 
 
 def main():

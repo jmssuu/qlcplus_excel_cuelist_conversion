@@ -43,10 +43,30 @@ NAME_ATTR_RE = re.compile(r'\bName="([^"]*)"')
 SOURCE_RE = re.compile(r"(<Source>)(.*?)(</Source>)", re.DOTALL)
 
 
+def list_dir(path: Path) -> List[Path]:
+    """列出資料夾內容；被 macOS 隱私權限擋下時給出看得懂的說明而不是 traceback。"""
+    try:
+        return sorted(path.iterdir())
+    except PermissionError:
+        raise SystemExit(
+            f"沒有權限讀取資料夾：{path}\n"
+            "macOS 預設會擋下應用程式列出「文件 / 桌面 / 下載 / iCloud 雲碟」裡的內容。\n"
+            "請到「系統設定 → 隱私權與安全性 → 檔案與資料夾」（或「完全取用磁碟」）"
+            "把本程式打開，然後重新執行；或把資料改放到不受保護的位置。"
+        )
+
+
 def collect_music(music_dir: Path, recursive: bool = False) -> List[Path]:
     """列出 Music 資料夾裡的音檔。"""
-    it = music_dir.rglob("*") if recursive else music_dir.iterdir()
-    return sorted(p for p in it
+    if recursive:
+        try:
+            files = sorted(music_dir.rglob("*"))
+        except PermissionError:
+            files = []
+            list_dir(music_dir)  # 讓它丟出統一的權限說明
+    else:
+        files = list_dir(music_dir)
+    return sorted(p for p in files
                   if p.is_file() and p.suffix.lower() in AUDIO_SUFFIXES)
 
 

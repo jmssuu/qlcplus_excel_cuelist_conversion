@@ -19,9 +19,9 @@
 * 每個 ``#`` 區塊在輸出檔裡各成一張工作表，名稱為「原工作表名稱 + ``#`` 上方那格的文字」。
 * 第二個參數是音樂資料夾的路徑（省略時用執行目錄下的 ``Music``），會把裡面
   「與工作表同名的 .mp3」複製進該工作表的資料夾。
+* 產出的專案資料夾若已經存在，會先把裡面的東西全部清掉再重新產生。
 * 第三個參數是底稿 .qxw（可省略），會複製到產出的專案資料夾根目錄，
-  供 ``step3_cuelist_to_qxw.py`` 當成 merge 的底稿。複製前會先刪掉該資料夾根目錄
-  既有的 .qxw（不含子資料夾），免得上次留下的底稿被誤當成這次的底稿。
+  供 ``step3_cuelist_to_qxw.py`` 當成 merge 的底稿。
 """
 
 from __future__ import annotations
@@ -126,13 +126,26 @@ def unique_sheet_name(base: str, used: set) -> str:
     raise ValueError(f"無法為 {base} 產生唯一的工作表名稱")
 
 
+def list_dir(path: Path) -> List[Path]:
+    """列出資料夾內容；被 macOS 隱私權限擋下時給出看得懂的說明而不是 traceback。"""
+    try:
+        return sorted(path.iterdir())
+    except PermissionError:
+        raise SystemExit(
+            f"沒有權限讀取資料夾：{path}\n"
+            "macOS 預設會擋下應用程式列出「文件 / 桌面 / 下載 / iCloud 雲碟」裡的內容。\n"
+            "請到「系統設定 → 隱私權與安全性 → 檔案與資料夾」（或「完全取用磁碟」）"
+            "把本程式打開，然後重新執行；或把資料改放到不受保護的位置。"
+        )
+
+
 def resolve_music_dir(path: Path) -> Optional[Path]:
     """確認音樂資料夾存在；同層若只有大小寫不同（Music/music）也接受。"""
     if path.is_dir():
         return path
     parent = path.parent if str(path.parent) else Path(".")
     if parent.is_dir():
-        for entry in sorted(parent.iterdir()):
+        for entry in list_dir(parent):
             if entry.is_dir() and entry.name.lower() == path.name.lower():
                 return entry
     return None
@@ -144,7 +157,7 @@ def find_music_file(music_dir: Path, sheet_title: str) -> Optional[Path]:
     exact = music_dir / f"{wanted}.mp3"
     if exact.is_file():
         return exact
-    for entry in sorted(music_dir.iterdir()):
+    for entry in list_dir(music_dir):
         if entry.is_file() and entry.suffix.lower() == ".mp3" and entry.stem.strip().lower() == wanted.lower():
             return entry
     return None
@@ -220,6 +233,44 @@ def save_workbook(book, out_path: Path) -> None:
     book.save(out_path)
 
 
+def is_inside(path: Path, folder: Path) -> bool:
+    """path 是否就是 folder 本身或在它底下。"""
+    try:
+        path.resolve().relative_to(folder.resolve())
+    except (ValueError, OSError):
+        return False
+    return True
+
+
+def clear_dir(root: Path, protected: List[Path]) -> None:
+    """把既有的專案資料夾清空，避免上一次的產物殘留下來混進這次的結果。
+
+    輸入檔（總表 / 底稿 / Music）若剛好放在這個資料夾底下就整個中止，
+    免得把使用者自己的來源資料刪掉。
+    """
+    if root.is_file():
+        raise SystemExit(f"{root} 是一個檔案，不能當成輸出資料夾，請改名或換 --outdir。")
+    if not root.is_dir():
+        return
+
+    for item in protected:
+        if item is not None and is_inside(item, root):
+            raise SystemExit(
+                f"{item} 就放在輸出資料夾 {root} 底下，清空的話會連來源一起刪掉。\n"
+                "請把總表 / 底稿 / Music 移到別的位置，或用 --outdir 換一個輸出根目錄。"
+            )
+
+    removed = 0
+    for entry in list_dir(root):
+        if entry.is_dir() and not entry.is_symlink():
+            shutil.rmtree(entry)
+        else:
+            entry.unlink()
+        removed += 1
+    if removed:
+        print(f"[清除] {root} 原有的 {removed} 個項目已移除")
+
+
 def main(argv: Optional[List[str]] = None) -> int:
     parser = argparse.ArgumentParser(description="把總表 .xlsx 拆成每張工作表的 cuelist .xlsx")
     parser.add_argument("source", type=Path, help="要轉換的 .xlsx")
@@ -256,16 +307,12 @@ def main(argv: Optional[List[str]] = None) -> int:
             print(f"[提醒] 找不到音樂資料夾 {args.music_dir}，略過複製 mp3。")
 
         root = args.outdir / f"temp_{args.source.stem}"
+        # 同名資料夾已經存在就先清空，免得上一次的子資料夾、底稿留下來被誤用
+        clear_dir(root, [args.source, args.qxw, args.music_dir, music_dir])
+
         if args.qxw is not None:
             root.mkdir(parents=True, exist_ok=True)
-            target = root / args.qxw.name
-            source_qxw = args.qxw.resolve()
-            for stale in sorted(root.glob("*.qxw")):
-                if stale.is_file() and stale.resolve() != source_qxw:
-                    stale.unlink()
-                    print(f"[清除] 移除舊的 {stale}")
-            if source_qxw != target.resolve():
-                shutil.copy2(args.qxw, target)
+            shutil.copy2(args.qxw, root / args.qxw.name)
             print(f"[OK] 複製底稿 {args.qxw.name} -> {root}")
 
         for worksheet in sheets:
