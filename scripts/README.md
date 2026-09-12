@@ -6,7 +6,7 @@
 | 程式 | 做什麼 | 需要套件 |
 |---|---|---|
 | `run_all.py` | 一次跑完下面四步 | openpyxl |
-| `step1_split_cuelist_xlsx.py` | 第 1 步：把總表拆成每張工作表的 cuelist，複製同名 mp3 與底稿 `.qxw` | openpyxl |
+| `step1_split_cuelist_xlsx.py` | 第 1 步：把燈表拆成每張工作表的 cuelist，複製同名 mp3 與底稿 `.qxw` | openpyxl |
 | `step2_fades_to_black.py` | 第 2 步：把 `Fades to black(ms)` 展開成黑燈 cue，另存 `…_forqxw.xlsx` | openpyxl |
 | `step3_cuelist_to_qxw.py` | 第 3 步：表格／專案資料夾 → QLC+ `.qxw` | 無（純標準函式庫） |
 | `step4_retarget_qxw_music.py` | 第 4 步：把 `.qxw` 裡的音檔路徑改回原本的 `Music/` | 無 |
@@ -22,8 +22,9 @@ python3 scripts/run_all.py sample_file/AllCueList.xlsx sample_file/Music sample_
     --outdir sample_file
 ```
 
-參數依序是：**總表 `.xlsx`**、**Music 資料夾**（省略時用執行目錄下的 `Music`）、
-**底稿 `.qxw`**。另有 `--steps 1|2|3|4` 只跑到第幾步，
+參數依序是：**燈表 `.xlsx`**、**Music 資料夾**（省略時用執行目錄下的 `Music`）、
+**底稿 `.qxw`**。另有 `--steps 1|2|3|4` 只跑到第幾步、
+`--start-sheet N` 指定第 1 步從第幾張工作表開始（預設 5），
 `--` 後面的參數會原封不動傳給 `step4_retarget_qxw_music.py`。
 
 ⚠️ **底稿 `.qxw` 是必要的。** 第 3 步的燈具設定（有幾台、fixture ID、DMX 位址、
@@ -31,9 +32,9 @@ python3 scripts/run_all.py sample_file/AllCueList.xlsx sample_file/Music sample_
 `.qxf` 燈具定義檔，會依序找底稿旁的 `Fixtures/`、來源 `.xlsx` 旁的 `Fixtures/`、
 QLC+ 使用者燈具庫與內建燈具庫。
 
-⚠️ **前 3 張工作表會被跳過。** 第 1 步預設從第 4 張工作表開始
-（`step1_split_cuelist_xlsx.py --start-sheet 4`），因為前面通常是「說明」「下拉選單」
-「空白模板」這類非燈流的表。要改就單獨跑第 1 步並指定 `--start-sheet`。
+⚠️ **前 4 張工作表會被跳過。** 第 1 步預設從第 5 張工作表開始
+（`step1_split_cuelist_xlsx.py --start-sheet 5`），因為前面通常是「說明」「下拉選單」
+「空白模板」「測試用」這類非燈流的表。要改就單獨跑第 1 步並指定 `--start-sheet`。
 
 ⚠️ **`--outdir` 預設是「目前所在的資料夾」，不是 `.xlsx` 所在的資料夾。**
 在專案根目錄跑上面那行卻不給 `--outdir`，產物會掉在專案根目錄。

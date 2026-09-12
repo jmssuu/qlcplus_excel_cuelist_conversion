@@ -80,7 +80,7 @@ sample_file/AllCueList.xlsx
 
 ### 不想打指令：用拖曳介面
 
-`app/qlcplus_gui.py` 是 `scripts/run_all.py` 的圖形介面——把總表 `.xlsx` 拖進視窗，
+`app/qlcplus_gui.py` 是 `scripts/run_all.py` 的圖形介面——把燈表 `.xlsx` 拖進視窗，
 按「執行轉換」就跑完拆表 → 展開黑燈 cue → 轉 `.qxw` → 改音檔路徑四個步驟，
 過程訊息直接顯示在視窗下方
 （可以選取、右鍵複製，或按「複製訊息」整份複製、「清除訊息」清空；
@@ -105,6 +105,7 @@ app/macos/build_app.sh                      # 改完程式重新打包
 細節見 [`app/windows/README.md`](app/windows/README.md)。
 
 * Music 資料夾會自動帶入 `.xlsx` 旁邊的 `Music/`，也可以自己拖或按「瀏覽…」改。
+* 「Excel 轉換從第 N 張工作表開始轉換」對應第 1 步的 `--start-sheet`，預設 5。
 * 底稿 `.qxw` **必填**，會自動帶入 `.xlsx` 旁邊的 `BaseStage.qxw`；
   它會被複製進專案資料夾當 merge 底稿，燈具設定也是從它讀出來的。
 * 輸出固定放在 `.xlsx` 所在的資料夾：`<檔名>.qxw`（中繼檔在 `temp_<檔名>/`，
@@ -572,13 +573,13 @@ QLC+ 會維持上一步的畫面而不是暗場，所以這種列會把表格宣
 |---|---|
 | `scripts/step3_cuelist_to_qxw.py` | 主要工具：Excel / CSV / 專案資料夾 → QLC+ `.qxw` |
 | `scripts/run_all.py` | 一次跑完拆表 → 展開黑燈 cue → 轉檔 → 改音檔路徑 |
-| `scripts/step1_split_cuelist_xlsx.py` | 第 1 步：把總表拆成每張工作表的 cuelist，並複製 mp3 與底稿 |
+| `scripts/step1_split_cuelist_xlsx.py` | 第 1 步：把燈表拆成每張工作表的 cuelist，並複製 mp3 與底稿 |
 | `scripts/step2_fades_to_black.py` | 第 2 步：把 `Fades to black(ms)` 展開成黑燈 cue |
 | `scripts/step4_retarget_qxw_music.py` | 第 4 步：把 `.qxw` 裡的音檔路徑改回 `Music/` |
 | `app/qlcplus_gui.py` | 上面那條流程的拖曳介面（macOS / Windows 共用） |
 | `app/macos/build_app.sh` | 打包成 `app/macos/dist/QLCplus轉檔工具.app` |
 | `app/windows/build_exe.bat` | 在 Windows 上打包成 `app\windows\dist\QLCplus_Converter.exe` |
-| `sample_file/AllCueList.xlsx` | 範例總表：前 3 張是說明／下拉選單／空白模板，第 4 張起放各組燈流 |
+| `sample_file/AllCueList.xlsx` | 範例燈表：前 4 張是說明／下拉選單／空白模板／測試用，第 5 張起放各組燈流 |
 | `sample_file/BaseStage.qxw` | 範例底稿：燈具與虛擬控制台都設定好，供 merge 用 |
 | `sample_file/Music/` | 配樂，檔名要與工作表名稱相同才會被自動配對 |
 | `sample_file/Fixtures/` | 兩支燈的 QLC+ 燈具定義（`LSPA-60RC.qxf`、`GuangzhouEnran_ER-554.qxf`），第 3 步靠它取得通道名稱 |

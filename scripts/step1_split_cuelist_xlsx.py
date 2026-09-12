@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""把一份總表 .xlsx 拆成每張工作表各自的 cuelist .xlsx。
+"""把一份燈表 .xlsx 拆成每張工作表各自的 cuelist .xlsx。
 
 用法::
 
     python3 step1_split_cuelist_xlsx.py Project1.xlsx
-    python3 step1_split_cuelist_xlsx.py Project1.xlsx --start-sheet 4 --outdir .
+    python3 step1_split_cuelist_xlsx.py Project1.xlsx --start-sheet 5 --outdir .
     python3 step1_split_cuelist_xlsx.py Project1.xlsx /path/to/Music Basic_stage.qxw
 
 產出結構（以 Project1.xlsx 的第 5 張工作表為例）::
@@ -13,7 +13,7 @@
     temp_Project1/XX組-表演名稱/1_raw.xlsx
 
 轉換規則：
-* 從第 ``--start-sheet`` 張工作表（預設第 4 張）開始，每張工作表各自產生一個資料夾。
+* 從第 ``--start-sheet`` 張工作表（預設第 5 張）開始，每張工作表各自產生一個資料夾。
 * 在工作表裡找每一個內容為 ``#`` 的儲存格，以它為左上角往外框出一個區塊：
   往上一列（區塊標題列）、往下數到編號中斷（空白）為止、往右數到 ``Note`` 欄為止。
 * 每個 ``#`` 區塊在輸出檔裡各成一張工作表，名稱為「原工作表名稱 + ``#`` 上方那格的文字」。
@@ -245,7 +245,7 @@ def is_inside(path: Path, folder: Path) -> bool:
 def clear_dir(root: Path, protected: List[Path]) -> None:
     """把既有的專案資料夾清空，避免上一次的產物殘留下來混進這次的結果。
 
-    輸入檔（總表 / 底稿 / Music）若剛好放在這個資料夾底下就整個中止，
+    輸入檔（燈表 / 底稿 / Music）若剛好放在這個資料夾底下就整個中止，
     免得把使用者自己的來源資料刪掉。
     """
     if root.is_file():
@@ -257,7 +257,7 @@ def clear_dir(root: Path, protected: List[Path]) -> None:
         if item is not None and is_inside(item, root):
             raise SystemExit(
                 f"{item} 就放在輸出資料夾 {root} 底下，清空的話會連來源一起刪掉。\n"
-                "請把總表 / 底稿 / Music 移到別的位置，或用 --outdir 換一個輸出根目錄。"
+                "請把燈表 / 底稿 / Music 移到別的位置，或用 --outdir 換一個輸出根目錄。"
             )
 
     removed = 0
@@ -272,10 +272,10 @@ def clear_dir(root: Path, protected: List[Path]) -> None:
 
 
 def main(argv: Optional[List[str]] = None) -> int:
-    parser = argparse.ArgumentParser(description="把總表 .xlsx 拆成每張工作表的 cuelist .xlsx")
+    parser = argparse.ArgumentParser(description="把燈表 .xlsx 拆成每張工作表的 cuelist .xlsx")
     parser.add_argument("source", type=Path, help="要轉換的 .xlsx")
-    parser.add_argument("--start-sheet", type=int, default=4,
-                        help="從第幾張工作表開始轉換（1 起算，預設 4）")
+    parser.add_argument("--start-sheet", type=int, default=5,
+                        help="從第幾張工作表開始轉換（1 起算，預設 5）")
     parser.add_argument("--outdir", type=Path, default=Path("."),
                         help="輸出根目錄，預設為目前執行目錄")
     parser.add_argument("music_dir", type=Path, nargs="?", default=Path("Music"),

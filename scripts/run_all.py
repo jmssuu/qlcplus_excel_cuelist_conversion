@@ -9,9 +9,10 @@
     python3 run_all.py Project1.xlsx Music Basic_stage.qxw
     python3 run_all.py Project1.xlsx /path/to/Music --steps 3
     python3 run_all.py Project1.xlsx Music Basic_stage.qxw --outdir out
+    python3 run_all.py Project1.xlsx Music Basic_stage.qxw --start-sheet 5
 
 流程（``--steps`` 可指定執行到第幾步，預設 4 步全跑）：
-1. step1_split_cuelist_xlsx.py：把總表拆成 ``<outdir>/temp_<檔名>/<工作表>/…_cuelist.xlsx``，
+1. step1_split_cuelist_xlsx.py：把燈表拆成 ``<outdir>/temp_<檔名>/<工作表>/…_cuelist.xlsx``，
    並把音樂資料夾裡同名的 mp3 複製過去。
 2. step2_fades_to_black.py：把 ``Fades to black(ms)`` 展開成獨立的黑燈 cue，
    在每個子資料夾裡另存成 ``…_cuelist_forqxw.xlsx``。
@@ -21,7 +22,8 @@
 
 第一個參數是要轉換的 .xlsx，第二個參數是 Music 的路徑（省略時用執行目錄下的 Music），
 第三個參數是底稿 .qxw（可省略），會被複製進產出的專案資料夾，供第 2 步當 merge 底稿。
-另可用 ``--outdir`` 指定輸出根目錄、``--steps`` 指定執行到第幾步；
+另可用 ``--outdir`` 指定輸出根目錄、``--steps`` 指定執行到第幾步、
+``--start-sheet`` 指定第 1 步從第幾張工作表開始（預設 5）；
 ``--`` 後面的參數會傳給 step4_retarget_qxw_music.py。
 """
 
@@ -87,6 +89,15 @@ def main(argv=None) -> int:
         print(f"--steps 必須是 1~{TOTAL_STEPS} 的整數：{steps}", file=sys.stderr)
         return 2
 
+    start_sheet = take_option(rest, "--start-sheet")
+    if start_sheet is not None:
+        try:
+            if int(start_sheet) < 1:
+                raise ValueError
+        except ValueError:
+            print(f"--start-sheet 必須是 >= 1 的整數：{start_sheet}", file=sys.stderr)
+            return 2
+
     outdir = Path(take_option(rest, "--outdir") or ".")
     if rest:
         print(f"不認得的參數：{' '.join(rest)}", file=sys.stderr)
@@ -102,6 +113,8 @@ def main(argv=None) -> int:
     if base_qxw is not None:
         split_args.append(str(base_qxw))
     split_args += ["--outdir", str(outdir)]
+    if start_sheet is not None:
+        split_args += ["--start-sheet", start_sheet]
     code = step1_split_cuelist_xlsx.main(split_args)
     if code != 0:
         print("拆表失敗，中止。", file=sys.stderr)

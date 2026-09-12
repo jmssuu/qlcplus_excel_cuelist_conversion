@@ -10,7 +10,7 @@
 
     ./build_app.sh
 
-視窗上半部是拖曳區，把總表 .xlsx 拖進去就會顯示完整路徑；
+視窗上半部是拖曳區，把燈表 .xlsx 拖進去就會顯示完整路徑；
 Music 資料夾預設抓 .xlsx 旁邊的 ``Music/``，底稿 .qxw 預設抓旁邊的 ``BaseStage.qxw``。
 按「執行轉換」後會在下方的訊息區即時顯示 run_all 的輸出。
 """
@@ -45,6 +45,7 @@ except Exception:  # pragma: no cover - 只在缺套件時走到
 
 APP_TITLE = "QLC+ 轉檔工具(.xlsx燈表轉換成.qxw專案檔)"
 BASE_QXW_NAME = "BaseStage.qxw"      # 拖進 .xlsx 時預設抓同資料夾的這一份
+DEFAULT_START_SHEET = 5              # 前面幾張通常是說明／下拉選單／空白模板／測試用
 SHEET_SUFFIXES = (".xlsx", ".xlsm")
 
 # Windows 沒有 Helvetica / Menlo，硬指定會退回醜醜的預設字體
@@ -142,6 +143,7 @@ class App:
         self.music_var = tk.StringVar()
         self.base_var = tk.StringVar()
         self.cleanup_var = tk.BooleanVar(value=True)
+        self.start_sheet_var = tk.StringVar(value=str(DEFAULT_START_SHEET))
         self._auto_filled = {}      # 欄位 -> 上次自動帶入的值
         self._fixture_todo = []     # 待複製到 QLC+ 使用者燈具庫的 .qxf
         self._fixture_dest = None
@@ -217,12 +219,31 @@ class App:
         # --- 選項 ---
         opts = ttk.Frame(outer)
         opts.grid(row=4, column=0, sticky="ew")
-        opts.columnconfigure(1, weight=1)
+        opts.columnconfigure(0, weight=1)
 
-        self._path_row(opts, 0, "Music 資料夾：", self.music_var,
+        # 兩個路徑欄位自成一個 grid：標籤欄的寬度只由這兩個標籤決定，
+        # 不會被下面那個長標籤「從第幾張工作表開始：」推開。
+        paths = ttk.Frame(opts)
+        paths.grid(row=0, column=0, sticky="ew")
+        paths.columnconfigure(1, weight=1)
+
+        self._path_row(paths, 0, "Music 資料夾：", self.music_var,
                        self.browse_music, folder=True)
-        self._path_row(opts, 1, "底稿 .qxw：", self.base_var,
+        self._path_row(paths, 1, "底稿 .qxw：", self.base_var,
                        self.browse_base, folder=False)
+
+        start_row = ttk.Frame(opts)
+        start_row.grid(row=1, column=0, sticky="ew", pady=4)
+        # 數字框直接嵌在句子中間：Excel 轉換從第 [5] 張工作表開始轉換
+        ttk.Label(start_row, text="Excel 轉換從第").grid(row=0, column=0, sticky="w")
+        ttk.Spinbox(start_row, from_=1, to=999, width=5, justify="center",
+                    textvariable=self.start_sheet_var).grid(row=0, column=1,
+                                                            sticky="w", padx=6)
+        ttk.Label(start_row, text="張工作表開始轉換").grid(row=0, column=2, sticky="w")
+        ttk.Label(start_row,
+                  text=f"(這張之前的工作表都不轉換，如：說明／下拉選單／空白模板…，"
+                       f"預設從第 {DEFAULT_START_SHEET} 張開始)",
+                  style="Hint.TLabel").grid(row=0, column=3, sticky="w", padx=(8, 0))
 
         # 用原生的 tk.Checkbutton 而不是 ttk 版：clam 主題的勾選記號畫出來是叉。
         # 文字顏色要自己指定：系統若是深色模式，預設的標籤色是白的，
@@ -233,7 +254,7 @@ class App:
                        activeforeground="#22252a", highlightthickness=0,
                        borderwidth=0, anchor="w",
                        font=(UI_FONT, 12)).grid(
-            row=2, column=1, sticky="w", padx=6, pady=(6, 0))
+            row=2, column=0, sticky="w", padx=6, pady=(6, 0))
 
         # --- 執行 ---
         bar = ttk.Frame(outer)
@@ -444,7 +465,7 @@ class App:
         if self.running:
             return
         path = filedialog.askopenfilename(
-            title="選擇要轉換的總表",
+            title="選擇要轉換的燈表",
             filetypes=[("Excel 活頁簿", "*.xlsx *.xlsm"), ("所有檔案", "*.*")])
         if path:
             self.set_source(Path(path))
@@ -528,8 +549,14 @@ class App:
                 APP_TITLE,
                 "請指定底稿 .qxw。\n\n"
                 "燈具有幾台、DMX 位址、模式與通道長度都是從底稿讀出來的，"
-                f"少了它沒辦法轉換。\n把 {BASE_QXW_NAME} 放在總表旁邊，"
+                f"少了它沒辦法轉換。\n把 {BASE_QXW_NAME} 放在燈表旁邊，"
                 "或用「瀏覽…」選一份。")
+            return
+        start_sheet = self.start_sheet_var.get().strip()
+        if not start_sheet.isdigit() or int(start_sheet) < 1:
+            messagebox.showerror(
+                APP_TITLE,
+                f"「從第幾張工作表開始」要填 1 以上的整數，目前是「{start_sheet}」。")
             return
 
         self.running = True
@@ -540,7 +567,8 @@ class App:
         args = [str(self.source), music or str(self.source.parent / "Music")]
         if base:
             args.append(base)
-        args += ["--outdir", str(self.source.parent)]
+        args += ["--outdir", str(self.source.parent),
+                 "--start-sheet", start_sheet]
 
         temp_dir = (self.source.parent / f"temp_{self.source.stem}"
                     if self.cleanup_var.get() else None)

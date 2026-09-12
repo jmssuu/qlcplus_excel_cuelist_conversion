@@ -52,7 +52,7 @@ if [ -f "$PLIST" ]; then
 
     # 沒有這些說明字串，macOS 會直接擋掉 App 讀取「文件 / 桌面 / 下載 / 外接磁碟」
     # 的內容（iterdir 收到 Operation not permitted），連授權視窗都不會跳。
-    DESC="需要讀取你選擇的總表、Music 資料夾與底稿 .qxw。"
+    DESC="需要讀取你選擇的燈表、Music 資料夾與底稿 .qxw。"
     for KEY in NSDocumentsFolderUsageDescription NSDesktopFolderUsageDescription \
                NSDownloadsFolderUsageDescription NSRemovableVolumesUsageDescription; do
         /usr/libexec/PlistBuddy -c "Delete :$KEY" "$PLIST" 2>/dev/null || true
