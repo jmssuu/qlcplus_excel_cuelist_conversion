@@ -13,10 +13,7 @@
  <Channel Name="Red" Preset="IntensityRed"/>
  <Channel Name="Green" Preset="IntensityGreen"/>
  <Channel Name="Blue" Preset="IntensityBlue"/>
- <Channel Name="Stroboscopic">
-  <Group Byte="0">Effect</Group>
-  <Capability Min="0" Max="255">Stroboscopic (Slow to fast)</Capability>
- </Channel>
+ <Channel Name="Stroboscopic" Preset="ShutterStrobeSlowFast"/>
  <Channel Name="Function">
   <Group Byte="0">Colour</Group>
   <Capability Min="0" Max="50">None</Capability>

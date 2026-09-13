@@ -26,10 +26,7 @@
   <Group Byte="0">Speed</Group>
   <Capability Min="0" Max="255">Speed(color, voice)</Capability>
  </Channel>
- <Channel Name="Stroboscopic">
-  <Group Byte="0">Effect</Group>
-  <Capability Min="0" Max="255">Stroboscopic slow to fast</Capability>
- </Channel>
+ <Channel Name="Stroboscopic" Preset="ShutterStrobeSlowFast"/>
  <Mode Name="mode1">
   <Channel Number="0">total dimming</Channel>
   <Channel Number="1">Red</Channel>
